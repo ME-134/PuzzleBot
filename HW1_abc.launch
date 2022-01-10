@@ -10,7 +10,7 @@
 
 
   <!-- Start the HW#4 P5 code.  -->
-  <node pkg ="demo 133"
+  <node pkg ="demo133"
 	type="HW1_abc.py"
 	name="straightline"
 	output="screen">

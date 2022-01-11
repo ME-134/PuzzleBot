@@ -81,6 +81,7 @@ class Generator:
         # Create the splines (cubic for now, use Goto5() for HW#5P1).
         self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
         self.segments = [self.sin_traj]
+        self.segment_q = list()
 
         # Initialize the current segment index and starting time t0.
         self.index = 0
@@ -90,21 +91,31 @@ class Generator:
         # (angles) to where the first segment starts.
         self.lasttheta = thetaA
 
+        # Subscribe to "/switch" which causes the robot to do a flip
         self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
 
-    def flip(self, t, duration = 4):
-        xA = self.sin_traj.evaluate(t - self.t0 + duration)[0]
-        thetaMid = self.lasttheta + np.array([np.pi, np.pi / 2, np.pi]).reshape((3, 1))
-        thetaB = (self.ikin(xA, thetaMid))
-        self.segments = [Goto(self.lasttheta, thetaB, duration)] + self.segments
+    def flip(self, duration = 4):
+        # Convert all angles to be between 0 and 2pi
+        rounds = np.floor_divide(self.lasttheta, np.pi*2)
+
+        # Hard-code solution to flipped arm
+        thetaInit = np.remainder(self.lasttheta, np.pi*2)
+        thetaGoal = (thetaInit.T * np.array([1, -1, -1])
+                                 + np.array([np.pi, np.pi, 0*np.pi/2])).reshape((3, 1))
+
+        # Convert angles back to original space
+        thetaGoal += rounds * 2*np.pi
+        thetaInit += rounds * 2*np.pi
+        self.segment_q.append(Goto(thetaInit, thetaGoal, duration))
 
     def switch_callback(self, msg):
-        rospy.logwarn("switch called - not implemented!")
+        # msg is unused
+        self.flip()
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
     # Iterate to find the joints values putting the tip at the goal.
     def ikin(self, pgoal, theta_initialguess):
-	# Start iterating from the initial guess
+        # Start iterating from the initial guess
         theta = theta_initialguess
 
         # Iterate at most 50 times (just to be safe)!
@@ -136,9 +147,16 @@ class Generator:
                       pgoal[0], pgoal[1], pgoal[2]);
         return 0 * theta
 
-    
+
     # Update is called every 10ms!
     def update(self, t):
+
+        if self.segment_q:
+            self.index = len(self.segments)
+            self.segments += self.segment_q
+            self.segment_q = list()
+            self.t0 = t
+
         # If the current segment is done, shift to the next.
         dur = self.segments[self.index].duration()
         if (t - self.t0 >= dur):

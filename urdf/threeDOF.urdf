@@ -220,7 +220,7 @@
     <visual>
       <origin xyz="0 0.5 0" rpy="-1.5708 0 0"/>
       <geometry>
-	<cylinder length="0.22" radius="0.02"/>
+	<cylinder length="1" radius="0.02"/>
       </geometry>
       <material name="black"/>
     </visual>

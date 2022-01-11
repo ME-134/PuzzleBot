@@ -21,6 +21,33 @@ from kinematics import Kinematics, p_from_T, R_from_T, Rx, Ry, Rz
 # Import the Spline stuff:
 from splines import  CubicSpline, Goto, Hold, Stay, QuinticSpline, Goto5
 
+# Uses cosine interpolation between two points
+class SinTraj:
+    # Initialize.
+    def __init__(self, p0, pf, T, f, offset=0, space='Joint'):
+        # Precompute the spline parameters.
+        self.T = T
+        self.f = f
+        self.offset = offset
+        self.p0 = p0
+        self.pf = pf
+        # Save the space
+        self.usespace = space
+
+    # Return the segment's space
+    def space(self):
+        return self.usespace
+
+    # Report the segment's duration (time length).
+    def duration(self):
+        return(self.T)
+
+    # Compute the position/velocity for a given time (w.r.t. t=0 start).
+    def evaluate(self, t):
+        # Compute and return the position and velocity.
+        p = (self.pf - self.p0) * (.5+.5*np.cos(t*self.f*2*np.pi + self.offset)) + self.p0
+        v = (self.pf - self.p0) * (-.5*np.sin(t*self.f*2*np.pi + self.offset)) * self.f*2*np.pi
+        return (p,v)
 
 #
 #  Generator Class
@@ -41,8 +68,8 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip')
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.7, 0.3, 0.01]).reshape((3,1))    # Bottom.
-        xB = np.array([-0.7, 0.3, 0.01]).reshape((3,1))    # Top.
+        xA = np.array([ 0.7, 0.5, 0.01]).reshape((3,1))    # Bottom.
+        xB = np.array([-0.7, 0.5, 0.01]).reshape((3,1))    # Top.
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
@@ -56,8 +83,7 @@ class Generator:
         #print(thetaB)
 
         # Create the splines (cubic for now, use Goto5() for HW#5P1).
-        self.segments = (Goto(xA,     xB,     2.0, 'Cart'),
-                         Goto(thetaB, thetaA, 2.0, 'Joint'))
+        self.segments = [SinTraj(xA, xB, np.inf, .5, space="Cart")]
 
         # Initialize the current segment index and starting time t0.
         self.index = 0

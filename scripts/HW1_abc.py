@@ -101,7 +101,7 @@ class Generator:
         # Hard-code solution to flipped arm
         thetaInit = np.remainder(self.lasttheta, np.pi*2)
         thetaGoal = (thetaInit.T * np.array([1, -1, -1])
-                                 + np.array([np.pi, np.pi, 0*np.pi/2])).reshape((3, 1))
+                                 + np.array([np.pi, np.pi, 0])).reshape((3, 1))
 
         # Convert angles back to original space
         thetaGoal += rounds * 2*np.pi

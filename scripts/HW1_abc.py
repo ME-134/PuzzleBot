@@ -11,6 +11,7 @@ import rospy
 import numpy as np
 
 from sensor_msgs.msg     import JointState
+from std_msgs.msg        import Bool
 from urdf_parser_py.urdf import Robot
 
 # Import the kinematics stuff:
@@ -89,12 +90,16 @@ class Generator:
         # (angles) to where the first segment starts.
         self.lasttheta = thetaA
 
+        self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
+
     def flip(self, t, duration = 4):
         xA = self.sin_traj.evaluate(t - self.t0 + duration)[0]
         thetaMid = self.lasttheta + np.array([np.pi, np.pi / 2, np.pi]).reshape((3, 1))
         thetaB = (self.ikin(xA, thetaMid))
         self.segments = [Goto(self.lasttheta, thetaB, duration)] + self.segments
 
+    def switch_callback(self, msg):
+        rospy.logwarn("switch called - not implemented!")
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
     # Iterate to find the joints values putting the tip at the goal.

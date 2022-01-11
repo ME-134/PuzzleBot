@@ -75,15 +75,11 @@ class Generator:
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
 
         # Figure out the start/stop joint values.
-        thetaA = self.ikin(xA, theta0)
-        thetaB = self.ikin(xB, theta0)
-
-        # For debugging:
-        #print(thetaA)
-        #print(thetaB)
+        thetaA = (self.ikin(xA, theta0))
 
         # Create the splines (cubic for now, use Goto5() for HW#5P1).
-        self.segments = [SinTraj(xA, xB, np.inf, .5, space="Cart")]
+        self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
+        self.segments = [self.sin_traj]
 
         # Initialize the current segment index and starting time t0.
         self.index = 0
@@ -92,6 +88,12 @@ class Generator:
         # Also initialize the storage of the last joint position
         # (angles) to where the first segment starts.
         self.lasttheta = thetaA
+
+    def flip(self, t, duration = 4):
+        xA = self.sin_traj.evaluate(t - self.t0 + duration)[0]
+        thetaMid = self.lasttheta + np.array([np.pi, np.pi / 2, np.pi]).reshape((3, 1))
+        thetaB = (self.ikin(xA, thetaMid))
+        self.segments = [Goto(self.lasttheta, thetaB, duration)] + self.segments
 
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:

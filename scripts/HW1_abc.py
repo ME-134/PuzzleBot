@@ -91,6 +91,12 @@ class Generator:
         # Also initialize the storage of the last joint position
         # (angles) to where the first segment starts.
         self.lasttheta = thetaA
+        self.lastthetadot = thetaA * 0.0
+
+        # Flips between 1 and -1 every time the robot does a flip.
+        # Not critical for functionality, but ensures that the robot doesn't
+        # keep spinning the same way on the vertical axis.
+        self.orientation = 1
 
         # Subscribe to "/switch" which causes the robot to do a flip
         self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
@@ -102,12 +108,22 @@ class Generator:
         # Hard-code solution to flipped arm
         thetaInit = np.remainder(self.lasttheta, np.pi*2)
         thetaGoal = (thetaInit.T * np.array([1, -1, -1])
-                                 + np.array([np.pi, np.pi, 0])).reshape((3, 1))
+                                 + np.array([self.orientation * np.pi, np.pi, 0])).reshape((3, 1))
+
+        # Ensures that the robot arm segments don't collide with each other.
+        if thetaInit[2, 0] > np.pi:
+            thetaGoal[2, 0] += 4*np.pi
+
+        thetaDotInit = self.lastthetadot
+        thetaDotGoal = (thetaDotInit.T * np.array([1, -1, -1])).reshape((3, 1))
+
+        # Flips between -1 and 1
+        self.orientation *= -1
 
         # Convert angles back to original space
         thetaGoal += rounds * 2*np.pi
         thetaInit += rounds * 2*np.pi
-        self.segment_q.append(Goto(thetaInit, thetaGoal, duration))
+        self.segment_q.append(CubicSpline(thetaInit, thetaDotInit, thetaGoal, thetaDotGoal, duration))
 
     def switch_callback(self, msg):
         # msg is unused
@@ -191,6 +207,7 @@ class Generator:
 
         # Save the position (to be used as an estimate next time).
         self.lasttheta = theta
+        self.lastthetadot = thetadot
 
         # Create and send the command message.  Note the names have to
         # match the joint names in the URDF.  And their number must be

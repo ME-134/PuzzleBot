@@ -86,6 +86,7 @@ class Generator:
         # Initialize the current segment index and starting time t0.
         self.index = 0
         self.t0    = 0.0
+        self.old_t0 = 0.0
 
         # Also initialize the storage of the last joint position
         # (angles) to where the first segment starts.
@@ -155,6 +156,7 @@ class Generator:
             self.index = len(self.segments)
             self.segments += self.segment_q
             self.segment_q = list()
+            self.old_t0 = self.t0
             self.t0 = t
 
         # If the current segment is done, shift to the next.
@@ -163,6 +165,8 @@ class Generator:
             self.t0    = (self.t0    + dur)
             #self.index = (self.index + 1)                       # not cyclic!
             self.index = (self.index + 1) % len(self.segments)  # cyclic!
+            if self.index < len(self.segments) and isinstance(self.segments[self.index], SinTraj):
+                self.t0 = self.old_t0
 
         # Check whether we are done with all segments.
         if (self.index >= len(self.segments)):

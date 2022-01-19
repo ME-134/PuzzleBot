@@ -6,7 +6,7 @@ Clone under `some_ws/src` to use
 
 To run HW1:
 
-`$roslaunch HW1 HW1_abc.launch`
+`$roslaunch HW1 robot.launch`
 
 To do the flip:
 

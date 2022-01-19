@@ -90,16 +90,60 @@ class Generator:
 
         # Also initialize the storage of the last joint position
         # (angles) to where the first segment starts.
-        self.lasttheta = thetaA
-        self.lastthetadot = thetaA * 0.0
+
+        # FIXME
+        #msg = rospy.wait_for_message('/hebinode/joint_states', JointState)
+        #self.lasttheta = msg.position
+        #self.lastthetadot = msg.velocity
+
+        self.lasttheta = np.pi * np.random.rand(3, 1)
+        #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
+        self.lastthetadot = self.lasttheta * 0
 
         # Flips between 1 and -1 every time the robot does a flip.
         # Not critical for functionality, but ensures that the robot doesn't
         # keep spinning the same way on the vertical axis.
         self.orientation = 1
 
+        # Add spline which goes to the correct starting position
+        self.reset()
+
         # Subscribe to "/switch" which causes the robot to do a flip
         self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
+
+        # Subscriber which listens to the motors' positions and velocities
+        self.state_sub = rospy.Subscriber('/hebinode/joint_states', JointState, self.state_update_callback)
+
+    def reset(self, duration = 4):
+        # Compute desired theta, starting the Newton Raphson at the last theta.
+        goal_pos, _ = self.sin_traj.evaluate(0)
+        goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
+
+        # Choose fastest path to the start
+        for i in range(goal_theta.shape[0]):
+            candidate = np.remainder(goal_theta[i,0], 2*np.pi)
+            if abs(candidate - self.lasttheta[i,0]) < abs(goal_theta[i,0] - self.lasttheta[i,0]):
+                goal_theta[i,0] = candidate
+
+        # Don't go through the table
+        if -np.pi < goal_theta[1] < 0:
+            goal_theta[1] = 0*np.pi - goal_theta[1]
+            goal_theta[2] = 0*np.pi - goal_theta[2]
+        if 2*np.pi > goal_theta[1] > np.pi:
+            goal_theta[1] = 2*np.pi - goal_theta[1]
+            goal_theta[2] = 0*np.pi - goal_theta[2]
+
+        # Don't go thru itself
+        if goal_theta[2,0] < -np.pi < self.lasttheta[2,0]:
+            goal_theta[2,0] += 2*np.pi
+        if goal_theta[2,0] > -np.pi > self.lasttheta[2,0]:
+            goal_theta[2,0] -= 2*np.pi
+        if goal_theta[2,0] < np.pi < self.lasttheta[2,0]:
+            goal_theta[2,0] += 2*np.pi
+        if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
+            goal_theta[2,0] -= 2*np.pi
+
+        self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
 
     def flip(self, duration = 4):
         # Convert all angles to be between 0 and 2pi
@@ -128,6 +172,12 @@ class Generator:
     def switch_callback(self, msg):
         # msg is unused
         self.flip()
+
+    def state_update_callback(self, msg):
+        # Update our knowledge of true position and velocity of the motors
+        rospy.loginfo("Recieved state update message")
+        self.lasttheta = msg.position
+        self.lastthetadot = msg.velocity
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
     # Iterate to find the joints values putting the tip at the goal.
@@ -206,6 +256,7 @@ class Generator:
             thetadot  = np.linalg.inv(J) @ v
 
         # Save the position (to be used as an estimate next time).
+        # TODO: remove OR replace usage of self.lasttheta with self.theta
         self.lasttheta = theta
         self.lastthetadot = thetadot
 

@@ -84,7 +84,7 @@
     <visual>
       <origin xyz="0 0 -0.425" rpy="0 0 0"/>
       <geometry>
-	<box size="1.0 1.0 0.05"/>
+	<box size=".3 .3 0.05"/>
       </geometry>
       <material name="table"/>
     </visual>
@@ -152,7 +152,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 1.5708 0"/>
       <geometry>
-	<cylinder length="0.4" radius="0.01"/>
+	<cylinder length="0.04" radius="0.01"/>
       </geometry>
       <material name="yellow"/>
     </visual>

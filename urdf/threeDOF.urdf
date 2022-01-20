@@ -82,17 +82,30 @@
 
   <link name="table">
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 .003175" rpy="0 0 0"/>
       <geometry>
-	<box size="1.0 1.0 0.00635"/>
+	<box size=".3 .3 0.00635"/>
       </geometry>
       <material name="table"/>
     </visual>
   </link>
 
-  <!-- *** Yaw Motor - attached to world *** -->
+  <!-- *** Yaw Motor - attached to link 1 *** -->
 
+  <joint name="attach-yawmotor" type="fixed">
+    <parent link="link1"/>
+    <child  link="yawmotor"/>
+  </joint>
 
+  <link name="yawmotor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
 
   <!-- *** Link 1 Bar - attached to link1 (yaw joint output) *** -->
 
@@ -111,9 +124,22 @@
     </visual>
   </link>
 
-  <!-- *** Link 1 Sail - attached to link1 (yaw joint output) *** -->
+  <!-- *** Pitch 1 Motor - attached to link2 (yaw joint output) *** -->
 
-  <!-- *** Pitch 1 Motor - attached to link1 (yaw joint output) *** -->
+  <joint name="attach-pitch1motor" type="fixed">
+    <parent link="link2"/>
+    <child  link="pitch1motor"/>
+  </joint>
+
+  <link name="pitch1motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+  </link>
 
   <!-- *** Link 2 Bar - attached to link2 (pitch1 joint output) *** -->
 
@@ -132,9 +158,22 @@
     </visual>
   </link>
 
-  <!-- *** Link 2 Sail - attached to link2 (pitch1 joint output) *** -->
+  <!-- *** Pitch 2 Motor - attached to link3 -->
 
-  <!-- *** Pitch 2 Motor - attached to link1 (yaw joint output) *** -->
+  <joint name="attach-pitch2motor" type="fixed">
+    <parent link="link3"/>
+    <child  link="pitch2motor"/>
+  </joint>
+
+  <link name="pitch2motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+  </link>
 
   <!-- *** Link 3 Bar - attached to link3 (pitch2 joint output) *** -->
 

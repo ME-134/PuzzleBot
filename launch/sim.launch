@@ -31,7 +31,6 @@
 	name="rviz" args="-d $(arg cfg)"
 	output="screen"
 	required="true"/>
-	
 
 
 </launch>

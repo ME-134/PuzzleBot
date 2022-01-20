@@ -60,6 +60,7 @@ class Generator:
         # for the subscriber to connect.  This isn't necessary, but means
         # we don't start sending messages until someone is listening.
         self.pub = rospy.Publisher("/hebi/joint_commands", JointState, queue_size=10)
+        self.rviz_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
         rospy.sleep(0.25)
 
         # Grab the robot's URDF from the parameter server.
@@ -71,12 +72,6 @@ class Generator:
         # Set the tip targets (in 3x1 column vectors).
         xA = np.array([ 0.07, 0.22, 0.15]).reshape((3,1))    # Bottom.
         xB = np.array([-0.07, 0.22, 0.15]).reshape((3,1))    # Top.
-
-        # Pick the initial estimate (in a 3x1 column vector).
-        theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
-
-        # Figure out the start/stop joint values.
-        thetaA = (self.ikin(xA, theta0))
 
         # Create the splines (cubic for now, use Goto5() for HW#5P1).
         self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
@@ -96,9 +91,11 @@ class Generator:
         self.lasttheta = np.array(msg.position).reshape((3,1))
         self.lastthetadot = np.array(msg.velocity).reshape((3,1))
 
+        # Pick the initial estimate (in a 3x1 column vector).
+        theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
         #self.lasttheta = np.pi * np.random.rand(3, 1)
         #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
-        self.lastthetadot = self.lasttheta * 0
+        #self.lastthetadot = self.lasttheta * 0
 
         # Flips between 1 and -1 every time the robot does a flip.
         # Not critical for functionality, but ensures that the robot doesn't
@@ -270,6 +267,7 @@ class Generator:
         cmdmsg.effort       = self.kin.grav(theta) * 0
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
+        self.rviz_pub.publish(cmdmsg)
 
 
 #

@@ -24,7 +24,7 @@
   <!-- Start the HW#4 P5 code.  -->
   <node pkg ="HW1"
 	type="Sin_grav.py"
-	name="straightline"
+	name="traj_gen"
 	output="screen">
   </node>
 
@@ -37,7 +37,7 @@
   </node>
 
 
-  <!-- Run the rviz visualization, with viewfourR.rviz config file -->
+  <!-- Run the rviz visualization -->
   <node pkg ="rviz"
 	type="rviz"
 	name="rviz" args="-d $(arg cfg)"

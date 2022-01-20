@@ -69,8 +69,8 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip')
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.07, 0.12, 0.15]).reshape((3,1))    # Bottom.
-        xB = np.array([-0.07, 0.12, 0.15]).reshape((3,1))    # Top.
+        xA = np.array([ 0.07, 0.22, 0.15]).reshape((3,1))    # Bottom.
+        xB = np.array([-0.07, 0.22, 0.15]).reshape((3,1))    # Top.
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
@@ -106,7 +106,7 @@ class Generator:
         self.orientation = 1
 
         # Add spline which goes to the correct starting position
-        self.reset(duration = 10)
+        self.reset(duration = 4)
 
         # Subscribe to "/switch" which causes the robot to do a flip
         self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
@@ -145,7 +145,7 @@ class Generator:
 
         self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
 
-    def flip(self, duration = 12):
+    def flip(self, duration = 4):
         # Convert all angles to be between 0 and 2pi
         rounds = np.floor_divide(self.lasttheta, np.pi*2)
 

@@ -1,0 +1,47 @@
+<launch>
+  <!-- Define general parameters.  These can be overwritten by the
+       roslaunch command line. -->
+  <arg name="model" default="$(find HW1)/urdf/threeDOF.urdf"/>
+  <arg name="cfg"   default="$(find HW1)/rviz/viewurdf.rviz"/>
+
+
+  <!-- Load the URDF file into the robot_description parameter. -->
+  <param name="robot_description" textfile="$(arg model)"/>
+  
+  <!-- Start the Hebi node.  -->
+  <node pkg ="me134basic"
+	type="hebi"
+	name="hebi"
+	output="screen"
+	required="true">
+    <rosparam>
+      family: "Thor"
+      names: ["1", "2", "3"]
+    </rosparam>
+  </node>
+
+
+  <!-- Start the HW#4 P5 code.  -->
+  <node pkg ="HW1"
+	type="Sin_grav.py"
+	name="straightline"
+	output="screen">
+  </node>
+
+
+  <!-- Start the ROS kinematic chain processing. -->
+  <node pkg ="robot_state_publisher"
+	type="robot_state_publisher"
+	name="rsp">
+    <param name="ignore_timestamp" value="true"/>
+  </node>
+
+
+  <!-- Run the rviz visualization, with viewfourR.rviz config file -->
+  <node pkg ="rviz"
+	type="rviz"
+	name="rviz" args="-d $(arg cfg)"
+	output="screen"
+	required="true"/>
+
+</launch>

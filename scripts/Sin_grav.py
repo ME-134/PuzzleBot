@@ -59,7 +59,7 @@ class Generator:
         # Create a publisher to send the joint commands.  Add some time
         # for the subscriber to connect.  This isn't necessary, but means
         # we don't start sending messages until someone is listening.
-        self.pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
+        self.pub = rospy.Publisher("/hebi/joint_commands", JointState, queue_size=10)
         rospy.sleep(0.25)
 
         # Grab the robot's URDF from the parameter server.
@@ -69,8 +69,8 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip')
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.7, 0.5, 0.01]).reshape((3,1))    # Bottom.
-        xB = np.array([-0.7, 0.5, 0.01]).reshape((3,1))    # Top.
+        xA = np.array([ 0.07, 0.12, 0.15]).reshape((3,1))    # Bottom.
+        xB = np.array([-0.07, 0.12, 0.15]).reshape((3,1))    # Top.
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
@@ -92,11 +92,11 @@ class Generator:
         # (angles) to where the first segment starts.
 
         # FIXME
-        #msg = rospy.wait_for_message('/hebinode/joint_states', JointState)
-        #self.lasttheta = msg.position
-        #self.lastthetadot = msg.velocity
+        msg = rospy.wait_for_message('/hebi/joint_states', JointState)
+        self.lasttheta = np.array(msg.position).reshape((3,1))
+        self.lastthetadot = np.array(msg.velocity).reshape((3,1))
 
-        self.lasttheta = np.pi * np.random.rand(3, 1)
+        #self.lasttheta = np.pi * np.random.rand(3, 1)
         #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
         self.lastthetadot = self.lasttheta * 0
 
@@ -106,7 +106,7 @@ class Generator:
         self.orientation = 1
 
         # Add spline which goes to the correct starting position
-        self.reset()
+        self.reset(duration = 10)
 
         # Subscribe to "/switch" which causes the robot to do a flip
         self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
@@ -114,7 +114,7 @@ class Generator:
         # Subscriber which listens to the motors' positions and velocities
         self.state_sub = rospy.Subscriber('/hebinode/joint_states', JointState, self.state_update_callback)
 
-    def reset(self, duration = 4):
+    def reset(self, duration = 10):
         # Compute desired theta, starting the Newton Raphson at the last theta.
         goal_pos, _ = self.sin_traj.evaluate(0)
         goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
@@ -145,7 +145,7 @@ class Generator:
 
         self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
 
-    def flip(self, duration = 4):
+    def flip(self, duration = 12):
         # Convert all angles to be between 0 and 2pi
         rounds = np.floor_divide(self.lasttheta, np.pi*2)
 
@@ -176,8 +176,8 @@ class Generator:
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
         rospy.loginfo("Recieved state update message")
-        self.lasttheta = msg.position
-        self.lastthetadot = msg.velocity
+        #self.lasttheta = msg.position
+        #self.lastthetadot = msg.velocity
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
     # Iterate to find the joints values putting the tip at the goal.
@@ -264,10 +264,10 @@ class Generator:
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['theta1', 'theta2', 'theta3']
+        cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
         cmdmsg.position     = theta
         cmdmsg.velocity     = thetadot
-        cmdmsg.effort       = self.kin.grav(theta)
+        cmdmsg.effort       = self.kin.grav(theta) * 0
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
 

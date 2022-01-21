@@ -9,6 +9,7 @@
 #
 import rospy
 import numpy as np
+import matplotlib.pyplot as plt
 
 from sensor_msgs.msg     import JointState
 from std_msgs.msg        import Bool
@@ -69,8 +70,8 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip')
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.7, 0.5, 0.01]).reshape((3,1))    # Bottom.
-        xB = np.array([-0.7, 0.5, 0.01]).reshape((3,1))    # Top.
+        xA = np.array([ 0.1, 0.2, 0.01]).reshape((3,1))    # Bottom.
+        xB = np.array([-0.1, 0.2, 0.01]).reshape((3,1))    # Top.
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
@@ -100,6 +101,9 @@ class Generator:
 
         # Subscribe to "/switch" which causes the robot to do a flip
         self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
+
+        self.theta_history = []
+        self.thetadot_history = []
 
     def flip(self, duration = 4):
         # Convert all angles to be between 0 and 2pi
@@ -213,17 +217,30 @@ class Generator:
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['theta1', 'theta2', 'theta3']
+        cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
         cmdmsg.position     = theta
         cmdmsg.velocity     = thetadot
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
 
+        self.update_plot()
+
+    def update_plot(self):
+        self.theta_history.append(self.lasttheta[0])
+        if len(self.theta_history) > 0:
+            if len(self.theta_history) > 240:
+                self.theta_history = self.theta_history[-240:]
+            
+            plt.clf()
+            plt.plot(self.theta_history)
+            plt.draw()
+            plt.pause(1e-6)
 
 #
 #  Main Code
 #
 if __name__ == "__main__":
+    plt.ion()
     # Prepare/initialize this node.
     rospy.init_node('straightline')
 

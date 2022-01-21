@@ -88,8 +88,8 @@ class Generator:
 
         # FIXME
         msg = rospy.wait_for_message('/hebi/joint_states', JointState)
-        self.lasttheta = np.array(msg.position).reshape((3,1))
-        self.lastthetadot = np.array(msg.velocity).reshape((3,1))
+        self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
+        self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
@@ -172,9 +172,15 @@ class Generator:
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
-        rospy.loginfo("Recieved state update message")
-        #self.lasttheta = msg.position
-        #self.lastthetadot = msg.velocity
+        rospy.loginfo("Recieved state update message " + str(msg))
+        self.lasttheta_state = msg.position
+        self.lastthetadot_state = msg.velocity
+
+    def plot_errors(self):
+        theta_error = self.lasttheta_state - self.lasttheta
+        thetadot_error = self.lastthetadot_state - self.lastthetadot
+
+        
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
     # Iterate to find the joints values putting the tip at the goal.

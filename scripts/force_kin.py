@@ -226,11 +226,13 @@ class Kinematics:
             return
 
         # Initialize the T matrix to walk up the chain
-        T = np.eye(4)
+        T = np.eye(len(theta))
 
         # Initialize the gravity torques.
-        grav = np.zeros((self.dofs, 1))
-
+        grav = np.zeros(self.dofs)
+        if self.inertial is None:
+            return grav
+        '''
         # As we are walking up, also store the position and joint
         # axis, ONLY FOR ACTIVE/MOVING/"REAL" joints.  We simply put
         # each in a python, and keep an index counter.
@@ -270,7 +272,7 @@ class Kinematics:
 
 		    # Now consider the child link.  Proceed if there is an
             # inertial element.
-            if (link.inertial is not None):
+            if (self.inertial is not None):
                 # Check whether to shift to the child link's center of mass.
                 if (link.inertial.origin is not None):
                     Tlink = T @ T_from_URDF_origin(link.inertial.origin)
@@ -286,7 +288,11 @@ class Kinematics:
                 # hence we simply take the 3rd element of the vector.
                 for k in range(index):
                     grav[k] += mg * np.cross(elist[k], pc-plist[k], axis=0)[2]
-
+        '''
+        if self.inertial is not None:
+            grav[2] = self.inertial[2, 0]*np.sin(theta[2]+theta[1]) + self.inertial[2, 1]*np.cos(theta[2]+theta[1])
+            grav[1] = grav[2] + self.inertial[1, 0]*np.sin(theta[1]) + self.inertial[1, 1]*np.cos(theta[1])
+            grav[0] = 0.0
         # Return the gravity torques.
         return grav
 

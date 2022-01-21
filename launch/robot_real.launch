@@ -19,22 +19,7 @@
       names: ["1", "2", "3"]
     </rosparam>
   </node>
-
-
-  <!-- Start the HW#4 P5 code.  -->
-  <node pkg ="HW1"
-	type="Sin_grav.py"
-	name="traj_gen"
-	output="screen">
-  </node>
   
-  <node pkg ="HW1"
-	type="plot.py"
-	name="plotting"
-	output="screen">
-  </node>
-
-
   <!-- Start the ROS kinematic chain processing. -->
   <node pkg ="robot_state_publisher"
 	type="robot_state_publisher"

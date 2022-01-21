@@ -67,7 +67,10 @@ class Generator:
         robot = Robot.from_parameter_server()
 
         # Instantiate the Kinematics
-        self.kin = Kinematics(robot, 'world', 'tip')
+        inertial_params = np.array([[0, 0],
+                                  [-.3, .6],
+                                  [0, -0.04],])
+        self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Set the tip targets (in 3x1 column vectors).
         xA = np.array([ 0.07, 0.22, 0.15]).reshape((3,1))    # Bottom.
@@ -270,7 +273,7 @@ class Generator:
         cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
         cmdmsg.position     = self.lasttheta_state#theta
         cmdmsg.velocity     = self.lasttheta_state * 0.0
-        cmdmsg.effort       = np.array([0.0, .2, -.2])#self.kin.grav(self.lasttheta_state)
+        cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)

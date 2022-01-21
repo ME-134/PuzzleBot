@@ -124,11 +124,11 @@ def e_from_URDF_axis(axis):
 #   kinematic chain elements.
 #
 class Kinematics:
-    def __init__(self, robot, baseframe, tipframe):
+    def __init__(self, robot, baseframe, tipframe, inertial_params=None):
         # Report what we are doing.
         rospy.loginfo("Kinematics: Setting up the chain from '%s' to '%s'...",
                       baseframe, tipframe)
-
+        self.inertial = inertial_params
         # Create the list of joints from the base frame to the tip
         # frame.  Search backwards, as this could be a tree structure.
         # Meantine while a parent may have multiple children, every
@@ -290,8 +290,8 @@ class Kinematics:
                     grav[k] += mg * np.cross(elist[k], pc-plist[k], axis=0)[2]
         '''
         if self.inertial is not None:
-            grav[2] = self.inertial[2, 0]*np.sin(theta[2]+theta[1]) + self.inertial[2, 1]*np.cos(theta[2]+theta[1])
-            grav[1] = grav[2] + self.inertial[1, 0]*np.sin(theta[1]) + self.inertial[1, 1]*np.cos(theta[1])
+            grav[2] = self.inertial[2, 0]*np.sin(-theta[2]+theta[1]) + self.inertial[2, 1]*np.cos(-theta[2]+theta[1])
+            grav[1] = -grav[2] + self.inertial[1, 0]*np.sin(theta[1]) + self.inertial[1, 1]*np.cos(theta[1])
             grav[0] = 0.0
         # Return the gravity torques.
         return grav

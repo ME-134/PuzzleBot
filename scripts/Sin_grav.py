@@ -68,7 +68,10 @@ class Generator:
         robot = Robot.from_parameter_server()
 
         # Instantiate the Kinematics
-        self.kin = Kinematics(robot, 'world', 'tip')
+        inertial_params = np.array([[0, 0],
+                                  [0, 1.0],
+                                  [0, 2.0],])
+        self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Set the tip targets (in 3x1 column vectors).
         xA = np.array([ 0.07, 0.22, 0.15]).reshape((3,1))    # Bottom.

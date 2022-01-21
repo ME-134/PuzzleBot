@@ -27,6 +27,12 @@
 	name="traj_gen"
 	output="screen">
   </node>
+  
+  <node pkg ="HW1"
+	type="plot.py"
+	name="plotting"
+	output="screen">
+  </node>
 
 
   <!-- Start the ROS kinematic chain processing. -->

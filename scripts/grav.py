@@ -9,7 +9,6 @@
 #
 import rospy
 import numpy as np
-import matplotlib.pyplot as plt
 
 from sensor_msgs.msg     import JointState
 from std_msgs.msg        import Bool
@@ -111,9 +110,6 @@ class Generator:
 
         # Subscriber which listens to the motors' positions and velocities
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
-        
-        self.theta_history = []
-        self.thetadot_history = []
 
     def reset(self, duration = 10):
         # Compute desired theta, starting the Newton Raphson at the last theta.
@@ -272,21 +268,19 @@ class Generator:
         # the number of position/velocity elements.
         cmdmsg = JointState()
         cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
-        cmdmsg.position     = self.lasttheta
-        cmdmsg.velocity     = self.lastthetadot
-        cmdmsg.effort       = np.array([0.0, 0.0, 0.0])#self.kin.grav(self.lasttheta_state)
+        cmdmsg.position     = self.lasttheta_state#theta
+        cmdmsg.velocity     = self.lasttheta_state * 0.0
+        cmdmsg.effort       = np.array([0.0, .2, -.2])#self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
         
-    
 
 
 #
 #  Main Code
 #
 if __name__ == "__main__":
-    
     # Prepare/initialize this node.
     rospy.init_node('straightline')
 

@@ -24,7 +24,7 @@
     <parent link="link1"/>
     <child  link="link2"/>
     <origin xyz="0 0 .09" rpy="0 0 0"/>
-    <axis   xyz="-1 0 0"/>
+    <axis   xyz="1 0 0"/>
   </joint>
 
   <link name="link2"/>
@@ -32,8 +32,8 @@
   <joint name="Thor/3" type="continuous">
     <parent link="link2"/>
     <child  link="link3"/>
-    <origin xyz="0 .167 0" rpy="0 0 0"/>
-    <axis   xyz="1 0 0"/>
+    <origin xyz="-.03 .167 0" rpy="0 0 0"/>
+    <axis   xyz="-1 0 0"/>
   </joint>
 
   <link name="link3"/>

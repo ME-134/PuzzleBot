@@ -9,6 +9,10 @@ from time import time
 from sensor_msgs.msg     import JointState
 
 plt.ion()
+fig, axs = plt.subplots(3, 2, sharex = True)
+pos_axs = [axs[i, 0] for i in range(3)]
+vel_axs = [axs[i, 1] for i in range(3)]
+
 
 rospy.init_node('plotter')
 
@@ -48,7 +52,9 @@ while True:
     realtime = np.array(realtime_hist)
     realpos = np.array(realpos_hist)
     
-    plt.plot(realpos[:, 0])
+    for i in range(3):
+        pos_axs[i].clear()
+        pos_axs[i].plot(realpos[:, i])
     
     plt.draw()
     plt.pause(0.001)

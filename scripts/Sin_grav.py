@@ -21,7 +21,7 @@ from force_kin import Kinematics, p_from_T, R_from_T, Rx, Ry, Rz
 # but then we'd have to write "kinematics.p_from_T()" ...
 
 # Import the Spline stuff:
-from splines import  CubicSpline, Goto, Hold, Stay, QuinticSpline, Goto5
+from splines import Goto, Hold, Stay, QuinticSpline, Goto5
 
 # Uses cosine interpolation between two points
 class SinTraj:
@@ -69,15 +69,15 @@ class Generator:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [0, 1.0],
-                                  [0, 2.0],])
+                                  [-.3, .6],
+                                  [0, -0.04],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Set the tip targets (in 3x1 column vectors).
         xA = np.array([ 0.07, 0.22, 0.15]).reshape((3,1))    # Bottom.
         xB = np.array([-0.07, 0.22, 0.15]).reshape((3,1))    # Top.
 
-        # Create the splines (cubic for now, use Goto5() for HW#5P1).
+        # Create the splines.
         self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
         self.segments = [self.sin_traj]
         self.segment_q = list()
@@ -147,7 +147,7 @@ class Generator:
         if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
             goal_theta[2,0] -= 2*np.pi
 
-        self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
+        self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
 
     def flip(self, duration = 4):
         # Convert all angles to be between 0 and 2pi
@@ -171,7 +171,7 @@ class Generator:
         # Convert angles back to original space
         thetaGoal += rounds * 2*np.pi
         thetaInit += rounds * 2*np.pi
-        self.segment_q.append(CubicSpline(thetaInit, thetaDotInit, thetaGoal, thetaDotGoal, duration))
+        self.segment_q.append(QuinticSpline(thetaInit, thetaDotInit, 0, thetaGoal, thetaDotGoal, 0, duration))
 
     def switch_callback(self, msg):
         # msg is unused

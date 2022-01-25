@@ -68,7 +68,7 @@ class Generator:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.3, .6],
+                                  [-.2, .6],
                                   [0, -0.04],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
@@ -271,11 +271,13 @@ class Generator:
         # the number of position/velocity elements.
         cmdmsg = JointState()
         cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
-        cmdmsg.position     = self.lasttheta_state#theta
-        cmdmsg.velocity     = self.lasttheta_state * 0.0
+        cmdmsg.position     = [np.nan, np.nan, np.nan]#theta
+        cmdmsg.velocity     = [np.nan, np.nan, np.nan]
         cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
+        cmdmsg.position     = self.lasttheta_state
+        cmdmsg.velocity     = self.lastthetadot_state
         self.rviz_pub.publish(cmdmsg)
         
 

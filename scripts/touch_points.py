@@ -74,12 +74,15 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.07, 0.29, 0.15]).reshape((3,1))    # Bottom.
-        xB = np.array([-0.07, 0.29, 0.15]).reshape((3,1))    # Top.
+        xA = np.array([ 0.05, 0.05, 0.01]).reshape((3,1))    
+        xB = np.array([ 0.11,-0.10, 0.01]).reshape((3,1))    
+        xC = np.array([-0.13,-0.10, 0.01]).reshape((3,1))    
 
         # Create the splines.
-        self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
-        self.segments = [self.sin_traj]
+        zero = np.zeros_like(xA)
+        self.segments = [QuinticSpline(xA, zero, zero, xB, zero, zero, 8, space="Cart"),
+                        QuinticSpline(xB, zero, zero, xC, zero, zero, 8, space="Cart"),
+                        QuinticSpline(xC, zero, zero, xA, zero, zero, 8, space="Cart")]
         self.segment_q = list()
 
         # Initialize the current segment index and starting time t0.
@@ -105,8 +108,6 @@ class Generator:
         # Not critical for functionality, but ensures that the robot doesn't
         # keep spinning the same way on the vertical axis.
         self.orientation = 1
-        
-        self.is_resetting = False
 
         # Add spline which goes to the correct starting position
         self.reset(duration = 4)
@@ -150,8 +151,6 @@ class Generator:
             goal_theta[2,0] -= 2*np.pi
 
         self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
-        #self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
-        self.is_resetting = True
 
     def flip(self, duration = 4):
         # Convert all angles to be between 0 and 2pi
@@ -183,7 +182,7 @@ class Generator:
 
     def switch_callback(self, msg):
         # msg is unused
-        self.flip(duration=8)
+        self.flip()
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
@@ -194,7 +193,9 @@ class Generator:
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
+        print(self.lasttheta_state, self.lasttheta)
         print(theta_error, thetadot_error)
+        print(self.lasttheta_state - self.lasttheta)
         return (theta_error > 0.07)
         
 
@@ -252,9 +253,6 @@ class Generator:
             self.index = (self.index + 1) % len(self.segments)  # cyclic!
             if self.index < len(self.segments) and isinstance(self.segments[self.index], SinTraj):
                 self.t0 = self.old_t0
-            if self.is_resetting:
-                self.is_resetting = False
-                self.t0 = t
 
         # Check whether we are done with all segments.
         if (self.index >= len(self.segments)):
@@ -296,7 +294,7 @@ class Generator:
 
         if self.is_contacting() and isinstance(self.segments[self.index], SinTraj):
             print("resetting!!!")
-            self.reset(duration=4)
+            self.reset()
 #
 #  Main Code
 #

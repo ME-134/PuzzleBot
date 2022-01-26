@@ -74,15 +74,12 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.05, 0.05, 0.05]).reshape((3,1))    
-        xB = np.array([ 0.11,-0.10, 0.05]).reshape((3,1))    
-        xC = np.array([-0.13,-0.10, 0.05]).reshape((3,1))    
+        xA = np.array([ 0.07, 0.0, 0.15]).reshape((3,1))    # Bottom.
+        xB = np.array([-0.07, 0.0, 0.15]).reshape((3,1))    # Top.
 
         # Create the splines.
-        zero = np.zeros_like(xA)
-        self.segments = [QuinticSpline(xA, zero, zero, xB, zero, zero, 8, space="Cart"),
-                        QuinticSpline(xB, zero, zero, xC, zero, zero, 8, space="Cart"),
-                        QuinticSpline(xC, zero, zero, xA, zero, zero, 8, space="Cart")]
+        self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
+        self.segments = [self.sin_traj]
         self.segment_q = list()
 
         # Initialize the current segment index and starting time t0.
@@ -108,6 +105,8 @@ class Generator:
         # Not critical for functionality, but ensures that the robot doesn't
         # keep spinning the same way on the vertical axis.
         self.orientation = 1
+        
+        self.is_resetting = False
 
         # Add spline which goes to the correct starting position
         self.reset(duration = 4)
@@ -123,7 +122,7 @@ class Generator:
 
     def reset(self, duration = 10):
         # Compute desired theta, starting the Newton Raphson at the last theta.
-        goal_pos, _ = self.segments[0].evaluate(0)
+        goal_pos, _ = self.sin_traj.evaluate(0)
         goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
 
         # Choose fastest path to the start
@@ -195,7 +194,7 @@ class Generator:
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
-        #print(theta_error, thetadot_error)
+        print(theta_error, thetadot_error)
         return (theta_error > 0.07)
         
 
@@ -238,13 +237,12 @@ class Generator:
     # Update is called every 10ms!
     def update(self, t):
 
-        '''if self.segment_q:
-            print("adding segment")
+        if self.segment_q:
             self.index = len(self.segments)
             self.segments += self.segment_q
             self.segment_q = list()
             self.old_t0 = self.t0
-            self.t0 = t'''
+            self.t0 = t
 
         # If the current segment is done, shift to the next.
         dur = self.segments[self.index].duration()

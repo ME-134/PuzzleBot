@@ -26,7 +26,7 @@ from splines import Goto, Hold, Stay, QuinticSpline, CubicSpline, Goto5
 # Uses cosine interpolation between two points
 class SinTraj:
     # Initialize.
-    def __init__(self, p0, pf, T, f, offset=0, space='Joint'):
+    def __init__(self, p0, pf, T, f, offset=0, space='Joint', rm=False):
         # Precompute the spline parameters.
         self.T = T
         self.f = f
@@ -35,6 +35,7 @@ class SinTraj:
         self.pf = pf
         # Save the space
         self.usespace = space
+        self.rm = rm
 
     # Return the segment's space
     def space(self):
@@ -74,15 +75,16 @@ class Generator:
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.05, 0.05, 0.05]).reshape((3,1))    
-        xB = np.array([ 0.11,-0.10, 0.05]).reshape((3,1))    
-        xC = np.array([-0.13,-0.10, 0.05]).reshape((3,1))    
+        xA = np.array([-0.05,-0.05, 0.01]).reshape((3,1))  
+        #xA = np.array([0.0,0.0, 0.01]).reshape((3,1))    
+        xB = np.array([-0.11, 0.10, 0.01]).reshape((3,1))    
+        xC = np.array([ 0.13, 0.10, 0.01]).reshape((3,1))    
 
         # Create the splines.
         zero = np.zeros_like(xA)
-        self.segments = [QuinticSpline(xA, zero, zero, xB, zero, zero, 8, space="Cart"),
-                        QuinticSpline(xB, zero, zero, xC, zero, zero, 8, space="Cart"),
-                        QuinticSpline(xC, zero, zero, xA, zero, zero, 8, space="Cart")]
+        self.segments = [QuinticSpline(xA, zero, zero, xB, zero, zero, 5, space="Cart"),
+                        QuinticSpline(xB, zero, zero, xC, zero, zero, 5, space="Cart"),
+                        QuinticSpline(xC, zero, zero, xA, zero, zero, 5, space="Cart")]
         self.segment_q = list()
 
         # Initialize the current segment index and starting time t0.
@@ -100,9 +102,6 @@ class Generator:
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
-        #self.lasttheta = np.pi * np.random.rand(3, 1)
-        #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
-        #self.lastthetadot = self.lasttheta * 0
 
         # Flips between 1 and -1 every time the robot does a flip.
         # Not critical for functionality, but ensures that the robot doesn't
@@ -150,8 +149,8 @@ class Generator:
         if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
             goal_theta[2,0] -= 2*np.pi
 
-        self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
-        #self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
+        #self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
+        self.segment_q.append(CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True))
         self.is_resetting = True
 
     def flip(self, duration = 4):
@@ -180,7 +179,7 @@ class Generator:
         thetaGoal += rounds * 2*np.pi
         thetaGoal = self.ikin(initPos, thetaGoal)
         thetaInit += rounds * 2*np.pi
-        self.segment_q.append(QuinticSpline(thetaInit, thetaDotInit, 0, thetaGoal, thetaDotGoal, 0, duration))
+        self.segment_q.append(QuinticSpline(thetaInit, thetaDotInit, 0, thetaGoal, thetaDotGoal, 0, duration, rm=True))
 
     def switch_callback(self, msg):
         # msg is unused
@@ -195,8 +194,8 @@ class Generator:
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
-        #print(theta_error, thetadot_error)
-        return (theta_error > 0.07)
+        print(theta_error, thetadot_error)
+        return (theta_error > 0.075)
         
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
@@ -238,13 +237,12 @@ class Generator:
     # Update is called every 10ms!
     def update(self, t):
 
-        '''if self.segment_q:
-            print("adding segment")
+        if self.segment_q:
             self.index = len(self.segments)
             self.segments += self.segment_q
             self.segment_q = list()
             self.old_t0 = self.t0
-            self.t0 = t'''
+            self.t0 = t
 
         # If the current segment is done, shift to the next.
         dur = self.segments[self.index].duration()
@@ -257,6 +255,12 @@ class Generator:
             if self.is_resetting:
                 self.is_resetting = False
                 self.t0 = t
+            rm = []
+            for i in range(len(self.segments)):
+                if self.segments[i].rm == True:
+                    rm.append(i)
+            for i in rm[::-1]:
+                self.segments.pop(i)
 
         # Check whether we are done with all segments.
         if (self.index >= len(self.segments)):
@@ -291,14 +295,20 @@ class Generator:
         cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
         cmdmsg.position     = self.lasttheta
         cmdmsg.velocity     = self.lastthetadot
-        cmdmsg.effort       = np.array([0.0, 0.0, 0.0])#self.kin.grav(self.lasttheta_state)
+        cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
 
         if self.is_contacting() and isinstance(self.segments[self.index], SinTraj):
-            print("resetting!!!")
+            print("resetting!!!"*10)
             self.reset(duration=4)
+            print(len(self.segments))
+            print(len(self.segments))
+            print(len(self.segments))
+            print(len(self.segments))
+            print(len(self.segments))
+#
 #
 #  Main Code
 #

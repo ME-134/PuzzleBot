@@ -14,7 +14,7 @@
   <joint name="Thor/1" type="continuous">
     <parent link="world"/>
     <child  link="link1"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="-0.052 -0.2125 0" rpy="0 0 0"/>
     <axis   xyz="0 0 1"/>
   </joint>
 
@@ -23,7 +23,7 @@
   <joint name="Thor/2" type="continuous">
     <parent link="link1"/>
     <child  link="link2"/>
-    <origin xyz="0 0 .09" rpy="0 0 0"/>
+    <origin xyz="0 0 .085" rpy="0 0 0"/>
     <axis   xyz="1 0 0"/>
   </joint>
 
@@ -32,7 +32,7 @@
   <joint name="Thor/3" type="continuous">
     <parent link="link2"/>
     <child  link="link3"/>
-    <origin xyz="-.03 .167 0" rpy="0 0 0"/>
+    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
     <axis   xyz="-1 0 0"/>
   </joint>
 
@@ -41,7 +41,7 @@
   <joint name="shifttotip" type="fixed">
     <parent link="link3"/>
     <child  link="tip"/>
-    <origin xyz="0 .252 0" rpy="0 0 0"/>
+    <origin xyz="0 .2522 0" rpy="0 0 0"/>
   </joint>
 
   <link name="tip"/>
@@ -82,7 +82,7 @@
 
   <link name="table">
     <visual>
-      <origin xyz="0 0 .003175" rpy="0 0 0"/>
+      <origin xyz="-0.052 -0.217 .003175" rpy="0 0 0"/>
       <geometry>
 	<box size=".3 .3 0.00635"/>
       </geometry>

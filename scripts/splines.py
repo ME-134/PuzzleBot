@@ -48,7 +48,7 @@ import math
 #
 class CubicSpline:
     # Initialize.
-    def __init__(self, p0, v0, pf, vf, T, space='Joint'):
+    def __init__(self, p0, v0, pf, vf, T, space='Joint', rm=False):
         # Precompute the spline parameters.
         self.T = T
         self.a = p0
@@ -57,6 +57,7 @@ class CubicSpline:
         self.d = -2*(pf-p0)/T**3 + vf/T**2 +   v0/T**2
         # Save the space
         self.usespace = space
+        self.rm = rm
 
     # Return the segment's space
     def space(self):
@@ -98,7 +99,7 @@ class Stay(Hold):
 #
 class QuinticSpline:
     # Initialize.
-    def __init__(self, p0, v0, a0, pf, vf, af, T, space='Joint'):
+    def __init__(self, p0, v0, a0, pf, vf, af, T, space='Joint', rm=False):
         # Precompute the six spline parameters.
         self.T = T
         self.a = p0
@@ -109,6 +110,7 @@ class QuinticSpline:
         self.f =  -6*p0/T**5 - 3*v0/T**4 - 1*a0/T**3 +  6*pf/T**5 - 3*vf/T**4 + 0.5*af/T**3
         # Also save the space
         self.usespace = space
+        self.rm = rm
 
     # Return the segment's space
     def space(self):

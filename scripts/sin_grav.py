@@ -26,7 +26,7 @@ from splines import Goto, Hold, Stay, QuinticSpline, CubicSpline, Goto5
 # Uses cosine interpolation between two points
 class SinTraj:
     # Initialize.
-    def __init__(self, p0, pf, T, f, offset=0, space='Joint'):
+    def __init__(self, p0, pf, T, f, offset=0, space='Joint', rm=False):
         # Precompute the spline parameters.
         self.T = T
         self.f = f
@@ -35,6 +35,7 @@ class SinTraj:
         self.pf = pf
         # Save the space
         self.usespace = space
+        self.rm = rm
 
     # Return the segment's space
     def space(self):
@@ -122,7 +123,7 @@ class Generator:
 
     def reset(self, duration = 10):
         # Compute desired theta, starting the Newton Raphson at the last theta.
-        goal_pos, _ = self.sin_traj.evaluate(0)
+        goal_pos, _ = self.segments[0].evaluate(0)
         goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
 
         # Choose fastest path to the start
@@ -149,8 +150,8 @@ class Generator:
         if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
             goal_theta[2,0] -= 2*np.pi
 
-        self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
-        #self.segment_q.append(CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, duration))
+        #self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
+        self.segment_q.append(CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True))
         self.is_resetting = True
 
     def flip(self, duration = 4):
@@ -179,11 +180,12 @@ class Generator:
         thetaGoal += rounds * 2*np.pi
         thetaGoal = self.ikin(initPos, thetaGoal)
         thetaInit += rounds * 2*np.pi
-        self.segment_q.append(QuinticSpline(thetaInit, thetaDotInit, 0, thetaGoal, thetaDotGoal, 0, duration))
+        self.segment_q.append(QuinticSpline(thetaInit, thetaDotInit, 0, thetaGoal, thetaDotGoal, 0, duration, rm=True))
 
     def switch_callback(self, msg):
         # msg is unused
-        self.flip(duration=8)
+        if self.is_oscillating():
+            self.flip(duration=8)
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
@@ -195,8 +197,11 @@ class Generator:
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
         print(theta_error, thetadot_error)
-        return (theta_error > 0.07)
+        return (theta_error > 0.075)
         
+    def is_oscillating(self):
+        return isinstance(self.segments[self.index], SinTraj)
+    
 
     # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
     # Iterate to find the joints values putting the tip at the goal.
@@ -250,11 +255,17 @@ class Generator:
             self.t0    = (self.t0    + dur)
             #self.index = (self.index + 1)                       # not cyclic!
             self.index = (self.index + 1) % len(self.segments)  # cyclic!
-            if self.index < len(self.segments) and isinstance(self.segments[self.index], SinTraj):
+            if self.index < len(self.segments) and self.is_oscillating():
                 self.t0 = self.old_t0
             if self.is_resetting:
                 self.is_resetting = False
                 self.t0 = t
+            rm = []
+            for i in range(len(self.segments)):
+                if self.segments[i].rm == True:
+                    rm.append(i)
+            for i in rm[::-1]:
+                self.segments.pop(i)
 
         # Check whether we are done with all segments.
         if (self.index >= len(self.segments)):
@@ -289,14 +300,20 @@ class Generator:
         cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
         cmdmsg.position     = self.lasttheta
         cmdmsg.velocity     = self.lastthetadot
-        cmdmsg.effort       = np.array([0.0, 0.0, 0.0])#self.kin.grav(self.lasttheta_state)
+        cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
 
-        if self.is_contacting() and isinstance(self.segments[self.index], SinTraj):
-            print("resetting!!!")
+        if self.is_contacting() and self.is_oscillating():
+            print("resetting!!!"*10)
             self.reset(duration=4)
+            print(len(self.segments))
+            print(len(self.segments))
+            print(len(self.segments))
+            print(len(self.segments))
+            print(len(self.segments))
+#
 #
 #  Main Code
 #

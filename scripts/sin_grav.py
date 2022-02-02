@@ -16,48 +16,19 @@ from std_msgs.msg        import Bool
 from urdf_parser_py.urdf import Robot
 
 # Import the kinematics stuff:
-from force_kin import Kinematics, p_from_T, R_from_T, Rx, Ry, Rz
+from force_kin import *
 # We could also import the whole thing ("import kinematics"),
 # but then we'd have to write "kinematics.p_from_T()" ...
 
 # Import the Spline stuff:
-from splines import Goto, Hold, Stay, QuinticSpline, CubicSpline, Goto5
-
-# Uses cosine interpolation between two points
-class SinTraj:
-    # Initialize.
-    def __init__(self, p0, pf, T, f, offset=0, space='Joint', rm=False):
-        # Precompute the spline parameters.
-        self.T = T
-        self.f = f
-        self.offset = offset
-        self.p0 = p0
-        self.pf = pf
-        # Save the space
-        self.usespace = space
-        self.rm = rm
-
-    # Return the segment's space
-    def space(self):
-        return self.usespace
-
-    # Report the segment's duration (time length).
-    def duration(self):
-        return(self.T)
-
-    # Compute the position/velocity for a given time (w.r.t. t=0 start).
-    def evaluate(self, t):
-        # Compute and return the position and velocity.
-        p = (self.pf - self.p0) * (.5+.5*np.cos(t*self.f*2*np.pi + self.offset)) + self.p0
-        v = (self.pf - self.p0) * (-.5*np.sin(t*self.f*2*np.pi + self.offset)) * self.f*2*np.pi
-        return (p,v)
+from splines import *
 
 #
 #  Generator Class
 #
 class Generator:
     # Initialize.
-    def __init__(self):
+    def __init__(self, sim=False):
         # Create a publisher to send the joint commands.  Add some time
         # for the subscriber to connect.  This isn't necessary, but means
         # we don't start sending messages until someone is listening.
@@ -87,20 +58,25 @@ class Generator:
         self.index = 0
         self.t0    = 0.0
         self.old_t0 = 0.0
+        
+        self.last_t = None
+        self.sim = sim
 
         # Also initialize the storage of the last joint position
         # (angles) to where the first segment starts.
 
-        # FIXME
-        msg = rospy.wait_for_message('/hebi/joint_states', JointState)
-        self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
-        self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
+        if self.sim == False:
+            msg = rospy.wait_for_message('/hebi/joint_states', JointState)
+            self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
+            self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
+        else:
+            self.lasttheta_state = self.lasttheta = np.pi * np.random.rand(3, 1)
+            self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0
+            #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
+            
 
         # Pick the initial estimate (in a 3x1 column vector).
         theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
-        #self.lasttheta = np.pi * np.random.rand(3, 1)
-        #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
-        #self.lastthetadot = self.lasttheta * 0
 
         # Flips between 1 and -1 every time the robot does a flip.
         # Not critical for functionality, but ensures that the robot doesn't
@@ -122,6 +98,7 @@ class Generator:
         self.thetadot_history = []
 
     def reset(self, duration = 10):
+        rospy.loginfo("Resetting robot")
         # Compute desired theta, starting the Newton Raphson at the last theta.
         goal_pos, _ = self.segments[0].evaluate(0)
         goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
@@ -196,7 +173,7 @@ class Generator:
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
-        print(theta_error, thetadot_error)
+        #print(theta_error, thetadot_error)
         return (theta_error > 0.075)
         
     def is_oscillating(self):
@@ -241,7 +218,8 @@ class Generator:
 
     # Update is called every 10ms!
     def update(self, t):
-
+        dt = t - self.last_t
+        self.last_t = t
         if self.segment_q:
             self.index = len(self.segments)
             self.segments += self.segment_q
@@ -279,18 +257,35 @@ class Generator:
         else:
             # Grab the spline output as task values.
             (p, v)    = self.segments[self.index].evaluate(t - self.t0)
+            #Robj = R_from_rpy(x[3:6])
+            
+            # Get the Jacobian and T matrix
+            T, J = self.kin.fkin(self.lasttheta[:, 0])
+            
+            # Get the weighted Jacobian pseudoinverse
+            #gamma = .05
+            #Jw_inv = J.T @ np.linalg.pinv(J @ J.T + gamma**2 * np.eye(len(J[:, 0])))
+            Jw_inv = np.linalg.pinv(J)
+                
+            # Get the real tip position x(q)
+            xtip = p_from_T(T)
+            Rtip = R_from_T(T)
+            
+            # Error term
+            e_p = ep(p[0:3], xtip)
+            #e_r = eR(Robj, Rtip)
+            #e = np.append(e_p, e_r)
 
-            # Compute theta, starting the Newton Raphson at the last theta.
-            theta     = self.ikin(p, self.lasttheta)
-
-            # From that compute the Jacobian, so we can use J^-1 for thetadot.
-            (T,J)     = self.kin.fkin(theta)
-            J         = J[0:3, :]
-            thetadot  = np.linalg.inv(J) @ v
+            # Setting secondary task to centering
+            c_repulse = 5
+            
+            # Getting angle velocities
+            lam = 1/dt
+            thetadot = (Jw_inv[0:3, 0:3] @ (v[0:3] + lam*e_p)).reshape(3, 1) #+ (np.eye(N) - Jw_inv @ J) @ theta_second
+            
 
         # Save the position (to be used as an estimate next time).
-        # TODO: remove OR replace usage of self.lasttheta with self.theta
-        self.lasttheta = theta
+        self.lasttheta = self.lasttheta + dt * thetadot
         self.lastthetadot = thetadot
 
         # Create and send the command message.  Note the names have to
@@ -305,14 +300,8 @@ class Generator:
         self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
 
-        if self.is_contacting() and self.is_oscillating():
-            print("resetting!!!"*10)
+        if not self.sim and self.is_contacting() and self.is_oscillating():
             self.reset(duration=4)
-            print(len(self.segments))
-            print(len(self.segments))
-            print(len(self.segments))
-            print(len(self.segments))
-            print(len(self.segments))
 #
 #
 #  Main Code
@@ -324,7 +313,7 @@ if __name__ == "__main__":
 
     # Instantiate the trajectory generator object, encapsulating all
     # the computation and local variables.
-    generator = Generator()
+    generator = Generator(sim=True)
 
     # Prepare a servo loop at 100Hz.
     rate  = 100;
@@ -336,6 +325,7 @@ if __name__ == "__main__":
 
     # Run the servo loop until shutdown (killed or ctrl-C'ed).
     starttime = rospy.Time.now()
+    generator.last_t = starttime.to_sec()
     while not rospy.is_shutdown():
 
         # Current time (since start)

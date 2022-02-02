@@ -40,6 +40,15 @@ from urdf_parser_py.urdf import Robot
 #    Python List 1x3:  <origin> "rpy"  vector of angles
 #
 
+# Error functions
+def ep(pd, pa):
+    return (pd - pa)
+    
+def eR(Rd, Ra):
+    return 0.5*(np.cross(Ra[:,0], Rd[:,0]) +
+                np.cross(Ra[:,1], Rd[:,1]) +
+                np.cross(Ra[:,2], Rd[:,2]))
+
 ### Build T matrix from R/p.  Extract R/p from T matrix
 def T_from_Rp(R, p):
     return np.vstack((np.hstack((R,p)),

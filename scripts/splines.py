@@ -37,6 +37,37 @@
 #   The p0,pf,v0,vf,a0,af may be NumPy arrays.
 #
 import math
+import numpy as np
+
+
+# Uses cosine interpolation between two points
+class SinTraj:
+    # Initialize.
+    def __init__(self, p0, pf, T, f, offset=0, space='Joint', rm=False):
+        # Precompute the spline parameters.
+        self.T = T
+        self.f = f
+        self.offset = offset
+        self.p0 = p0
+        self.pf = pf
+        # Save the space
+        self.usespace = space
+        self.rm = rm
+
+    # Return the segment's space
+    def space(self):
+        return self.usespace
+
+    # Report the segment's duration (time length).
+    def duration(self):
+        return(self.T)
+
+    # Compute the position/velocity for a given time (w.r.t. t=0 start).
+    def evaluate(self, t):
+        # Compute and return the position and velocity.
+        p = (self.pf - self.p0) * (.5+.5*np.cos(t*self.f*2*np.pi + self.offset)) + self.p0
+        v = (self.pf - self.p0) * (-.5*np.sin(t*self.f*2*np.pi + self.offset)) * self.f*2*np.pi
+        return (p,v)
 
 
 #

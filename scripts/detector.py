@@ -38,9 +38,10 @@ class Detector:
 
         # Publish to the processed image.  Store up to three images,
         # in case any clients need a little more time.
-        self.pubimage = rospy.Publisher("/detector/image_raw", Image,
-                                        queue_size=3)
-        
+        self.puboutline = rospy.Publisher("/detector/ball_outline", Image,
+                                          queue_size=3)
+        self.pubbinary  = rospy.Publisher("/detector/binary", Image,
+                                          queue_size=3)
 
     def process(self, imagemsg):
         self.previouscentroid = self.centroid
@@ -62,7 +63,7 @@ class Detector:
         #greenLower = (30, 50, 6)
         #greenUpper = (64, 255, 255)
         
-        greenLower = (17, 39, 105)
+        greenLower = (17, 39, 90)
         greenUpper = (47, 255, 255)
         binary = cv2.inRange(hsv, greenLower, greenUpper)
 
@@ -71,9 +72,9 @@ class Detector:
         binary = cv2.dilate(binary, None, iterations=2)
 
         # Alternate erode/dilate/erode.
-        binary = cv2.erode(binary, None, iterations=10)
-        binary = cv2.dilate(binary, None, iterations=20)
-        binary = cv2.erode(binary, None, iterations=10)
+        #binary = cv2.erode(binary, None, iterations=10)
+        #binary = cv2.dilate(binary, None, iterations=20)
+        #binary = cv2.erode(binary, None, iterations=10)
 
 
         # Find contours in the mask and initialize the current
@@ -117,10 +118,10 @@ class Detector:
 
 
         # Convert back into a ROS image and republish (for debugging).
-        self.pubimage.publish(self.bridge.cv2_to_imgmsg(image, "bgr8"))
+        self.puboutline.publish(self.bridge.cv2_to_imgmsg(image, "bgr8"))
 
         # Alternatively, publish the black/white image.
-        #self.pubimage.publish(self.bridge.cv2_to_imgmsg(binary))
+        self.pubbinary.publish(self.bridge.cv2_to_imgmsg(binary))
 
 
 #

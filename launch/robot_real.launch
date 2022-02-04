@@ -25,8 +25,8 @@
 	type="usb_cam_node"
 	name="usb_cam">
     <rosparam>
-      _camera_name: "logitech"
-      _pixel_format: "yuyv"
+      camera_name: "logitech"
+      pixel_format: "yuyv"
     </rosparam>
   </node>
   

@@ -16,7 +16,17 @@
 	required="true">
     <rosparam>
       family: "Thor"
-      names: ["1", "2", "3"]
+      names: ["1", "4", "3"]
+    </rosparam>
+  </node>
+  
+  <!-- Start the camera node. -->
+  <node pkg ="usb_cam"
+	type="usb_cam_node"
+	name="usb_cam">
+    <rosparam>
+      _camera_name: "logitech"
+      _pixel_format: "yuyv"
     </rosparam>
   </node>
   

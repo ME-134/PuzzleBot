@@ -41,7 +41,7 @@ class Generator:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.2, .8],
+                                  [-.1, .7],
                                   [0, -0.1],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
@@ -116,6 +116,7 @@ class Generator:
         if 2*np.pi > goal_theta[1] > np.pi:
             goal_theta[1] = 2*np.pi - goal_theta[1]
             goal_theta[2] = 0*np.pi - goal_theta[2]
+        
 
         # Don't go thru itself
         if goal_theta[2,0] < -np.pi < self.lasttheta[2,0]:
@@ -126,6 +127,14 @@ class Generator:
             goal_theta[2,0] += 2*np.pi
         if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
             goal_theta[2,0] -= 2*np.pi
+            
+        #(T,J)     = self.kin.fkin(thetaInit)
+        #initPos = p_from_T(T)
+
+        # Convert angles back to original space
+        #thetaGoal += rounds * 2*np.pi
+        goal_theta = self.ikin(goal_pos, goal_theta)
+        #thetaInit += rounds * 2*np.pi
 
         #self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
         self.segment_q.append(CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True))
@@ -273,6 +282,7 @@ class Generator:
             
             # Error term
             e_p = ep(p[0:3], xtip)
+            print(e_p)
             #e_r = eR(Robj, Rtip)
             #e = np.append(e_p, e_r)
 
@@ -281,23 +291,34 @@ class Generator:
             
             # Getting angle velocities
             lam = 1/dt
-            thetadot = (Jw_inv[0:3, 0:3] @ (v[0:3] + lam*e_p)).reshape(3, 1) #+ (np.eye(N) - Jw_inv @ J) @ theta_second
+            #lam = 0
+            old = self.lasttheta
             
+            theta     = self.ikin(p, self.lasttheta)
+
+            # From that compute the Jacobian, so we can use J^-1 for thetadot.
+            (T,J)     = self.kin.fkin(theta)
+            J         = J[0:3, :]
+            thetadot  = np.linalg.inv(J) @ v
+            
+            #thetadot = (Jw_inv[0:3, 0:3] @ (v[0:3] + lam*e_p)).reshape(3, 1) #+ (np.eye(3) - Jw_inv @ J) @ theta_second
+            #theta = self.lasttheta + dt*thetadot
 
         # Save the position (to be used as an estimate next time).
-        self.lasttheta = self.lasttheta + dt * thetadot
+        self.lasttheta = theta
         self.lastthetadot = thetadot
 
         # Create and send the command message.  Note the names have to
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['Thor/1', 'Thor/2', 'Thor/3']
+        cmdmsg.name         = ['Thor/1', 'Thor/4', 'Thor/3']
         cmdmsg.position     = self.lasttheta
         cmdmsg.velocity     = self.lastthetadot
         cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
-        self.pub.publish(cmdmsg)
+        if not self.sim:
+            self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
 
         if not self.sim and self.is_contacting() and self.is_oscillating():
@@ -313,7 +334,10 @@ if __name__ == "__main__":
 
     # Instantiate the trajectory generator object, encapsulating all
     # the computation and local variables.
-    generator = Generator(sim=True)
+    import sys
+    doSim = sys.argv[1] != "False" if len(sys.argv) > 1 else True
+    print(doSim)
+    generator = Generator(sim=doSim)
 
     # Prepare a servo loop at 100Hz.
     rate  = 100;

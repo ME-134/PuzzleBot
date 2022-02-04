@@ -1,0 +1,16 @@
+primary_class = 'efficientnetB0'
+image_size = 224
+objective = 'sirna'
+batch_size = 16
+train_epochs = 30
+parent_model = None
+name = 'efficientnetB0'
+
+if eval:
+    torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnet_b0', pretrained=True, force_reload=True)
+    model = torch.load('models/'+name+'.pt')
+else:
+    model = torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnet_b0', pretrained=True, force_reload=True)
+    model.classifier = nn.Linear(1280, 512, bias = True)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    criterion = nn.TripletMarginLoss()

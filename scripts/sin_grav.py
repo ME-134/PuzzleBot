@@ -10,23 +10,19 @@
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
+import sys, time
 
 from sensor_msgs.msg     import JointState
-from std_msgs.msg        import Bool
+from std_msgs.msg        import Bool, Duration
 from urdf_parser_py.urdf import Robot
 
-# Import the kinematics stuff:
 from force_kin import *
-# We could also import the whole thing ("import kinematics"),
-# but then we'd have to write "kinematics.p_from_T()" ...
-
-# Import the Spline stuff:
 from splines import *
 
 #
-#  Generator Class
+#  Controller Class
 #
-class Generator:
+class Controller:
     # Initialize.
     def __init__(self, sim=False):
         # Create a publisher to send the joint commands.  Add some time
@@ -45,14 +41,6 @@ class Generator:
                                   [0, -0.1],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
-        # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.07, 0.0, 0.15]).reshape((3,1))    # Bottom.
-        xB = np.array([-0.07, 0.0, 0.15]).reshape((3,1))    # Top.
-
-        # Create the splines.
-        self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
-        self.segments = [self.sin_traj]
-        self.segment_q = list()
 
         # Initialize the current segment index and starting time t0.
         self.index = 0
@@ -71,12 +59,22 @@ class Generator:
             self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
         else:
             self.lasttheta_state = self.lasttheta = np.pi * np.random.rand(3, 1)
-            self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0
+            self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
             
 
-        # Pick the initial estimate (in a 3x1 column vector).
-        theta0 = np.array([0.0, np.pi/2, -np.pi/2]).reshape((3,1))
+        # Set the tip targets (in 3x1 column vectors).
+        xA = np.array([ 0.07, 0.0, 0.15]).reshape((3,1))    # Bottom.
+        xB = np.array([-0.07, 0.0, 0.15]).reshape((3,1))    # Top.
+        
+        thetaA = self.ikin(xA, self.lasttheta)
+        thetaB = self.ikin(xB, thetaA)
+
+        # Create the splines.
+        self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
+        #self.sin_traj = SinTraj(thetaA, thetaB, np.inf, .5, space="Joint")
+        self.segments = [self.sin_traj]
+        self.segment_q = list()
 
         # Flips between 1 and -1 every time the robot does a flip.
         # Not critical for functionality, but ensures that the robot doesn't
@@ -103,6 +101,8 @@ class Generator:
         goal_pos, _ = self.segments[0].evaluate(0)
         goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
 
+        #goal_theta, _ = self.segments[0].evaluate(0)
+
         # Choose fastest path to the start
         for i in range(goal_theta.shape[0]):
             candidate = np.remainder(goal_theta[i,0], 2*np.pi)
@@ -128,13 +128,7 @@ class Generator:
         if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
             goal_theta[2,0] -= 2*np.pi
             
-        #(T,J)     = self.kin.fkin(thetaInit)
-        #initPos = p_from_T(T)
-
-        # Convert angles back to original space
-        #thetaGoal += rounds * 2*np.pi
         goal_theta = self.ikin(goal_pos, goal_theta)
-        #thetaInit += rounds * 2*np.pi
 
         #self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
         self.segment_q.append(CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True))
@@ -182,15 +176,37 @@ class Generator:
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
-        #print(theta_error, thetadot_error)
         return (theta_error > 0.075)
         
     def is_oscillating(self):
         return isinstance(self.segments[self.index], SinTraj)
     
+    # Like ikin but only do 1 round
+    def ikin_fast(self, pgoal, theta_initialguess, return_J=False):
+        # Start iterating from the initial guess
+        theta = theta_initialguess
 
-    # Newton-Raphson static (indpendent of time/motion) Inverse Kinematics:
-    # Iterate to find the joints values putting the tip at the goal.
+        # Figure out where the current joint values put us:
+        # Compute the forward kinematics for this iteration.
+        (T,J) = self.kin.fkin(theta)
+
+        # Extract the position and use only the 3x3 linear
+        # Jacobian (for 3 joints).  Generalize this for bigger
+        # mechanisms if/when we need.
+        p = p_from_T(T)
+
+        # Compute the error.  Generalize to also compute
+        # orientation errors if/when we need.
+        e = pgoal - p
+
+        # Take a step in the appropriate direction.  Using an
+        # "inv()" though ultimately a "pinv()" would be safer.
+        theta = theta + np.linalg.inv(J[0:3, 0:3]) @ e
+
+        if return_J:
+            return theta, J
+        return theta
+
     def ikin(self, pgoal, theta_initialguess):
         # Start iterating from the initial guess
         theta = theta_initialguess
@@ -240,19 +256,13 @@ class Generator:
         dur = self.segments[self.index].duration()
         if (t - self.t0 >= dur):
             self.t0    = (self.t0    + dur)
-            #self.index = (self.index + 1)                       # not cyclic!
-            self.index = (self.index + 1) % len(self.segments)  # cyclic!
+            self.index = (self.index + 1) % len(self.segments)
             if self.index < len(self.segments) and self.is_oscillating():
                 self.t0 = self.old_t0
             if self.is_resetting:
                 self.is_resetting = False
                 self.t0 = t
-            rm = []
-            for i in range(len(self.segments)):
-                if self.segments[i].rm == True:
-                    rm.append(i)
-            for i in rm[::-1]:
-                self.segments.pop(i)
+            self.segments = list(filter(lambda x: not x.rm, self.segments))
 
         # Check whether we are done with all segments.
         if (self.index >= len(self.segments)):
@@ -269,6 +279,7 @@ class Generator:
             #Robj = R_from_rpy(x[3:6])
             
             # Get the Jacobian and T matrix
+            '''
             T, J = self.kin.fkin(self.lasttheta[:, 0])
             
             # Get the weighted Jacobian pseudoinverse
@@ -282,7 +293,7 @@ class Generator:
             
             # Error term
             e_p = ep(p[0:3], xtip)
-            print(e_p)
+            #print(e_p)
             #e_r = eR(Robj, Rtip)
             #e = np.append(e_p, e_r)
 
@@ -294,12 +305,9 @@ class Generator:
             #lam = 0
             old = self.lasttheta
             
-            theta     = self.ikin(p, self.lasttheta)
-
-            # From that compute the Jacobian, so we can use J^-1 for thetadot.
-            (T,J)     = self.kin.fkin(theta)
-            J         = J[0:3, :]
-            thetadot  = np.linalg.inv(J) @ v
+            '''
+            theta, J = self.ikin_fast(p, self.lasttheta, return_J=True)
+            thetadot  = np.linalg.inv(J[0:3, :]) @ v
             
             #thetadot = (Jw_inv[0:3, 0:3] @ (v[0:3] + lam*e_p)).reshape(3, 1) #+ (np.eye(3) - Jw_inv @ J) @ theta_second
             #theta = self.lasttheta + dt*thetadot
@@ -332,12 +340,14 @@ if __name__ == "__main__":
     # Prepare/initialize this node.
     rospy.init_node('straightline')
 
-    # Instantiate the trajectory generator object, encapsulating all
+    # Instantiate the controller object, encapsulating all
     # the computation and local variables.
-    import sys
     doSim = sys.argv[1] != "False" if len(sys.argv) > 1 else True
-    print(doSim)
-    generator = Generator(sim=doSim)
+    if doSim:
+        rospy.loginfo("Running simulator only")
+    else:
+        rospy.loginfo("Sending real commands")
+    controller = Controller(sim=doSim)
 
     # Prepare a servo loop at 100Hz.
     rate  = 100;
@@ -346,10 +356,11 @@ if __name__ == "__main__":
     rospy.loginfo("Running the servo loop with dt of %f seconds (%fHz)" %
                   (dt, rate))
 
+    timing_pub = rospy.Publisher("/update_time", Duration, queue_size=10)
 
     # Run the servo loop until shutdown (killed or ctrl-C'ed).
     starttime = rospy.Time.now()
-    generator.last_t = starttime.to_sec()
+    controller.last_t = starttime.to_sec()
     while not rospy.is_shutdown():
 
         # Current time (since start)
@@ -357,7 +368,13 @@ if __name__ == "__main__":
         t = (servotime - starttime).to_sec()
 
         # Update the controller.
-        generator.update(t)
+        start = time.time()
+        controller.update(t)
+        t = (time.time() - start)
+        tms = t * 1000
+        if tms > 5000:
+            rospy.logwarn(f"Update took {int(tms)}ms")
+        timing_pub.publish(t)
 
         # Wait for the next turn.  The timing is determined by the
         # above definition of servo.

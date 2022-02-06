@@ -15,6 +15,8 @@
 import rospy
 import numpy as np
 
+from functools import lru_cache
+
 from urdf_parser_py.urdf import Robot
 
 
@@ -107,6 +109,7 @@ def q_from_T(T):
 
 
 ### From URDF <ORIGIN> elements (and "xyz"/"rpy" sub-elements):
+@lru_cache
 def T_from_URDF_origin(origin):
     return T_from_Rp(R_from_URDF_rpy(origin.rpy), p_from_URDF_xyz(origin.xyz))
 

@@ -21,7 +21,7 @@ class Controller:
     # Initialize.
     def __init__(self):
         # Collect the motor names, which defines the dofs (useful to know).
-        self.motors = ['Thor/1', 'Thor/2', 'Thor/3']
+        self.motors = ['Thor/1', 'Thor/4', 'Thor/3']
         self.dofs   = len(self.motors)
 
         # Create a publisher to send the joint commands.  Add some time
@@ -61,11 +61,11 @@ class Controller:
                                self.initpos[2] * 0.5 * (- math.sin(t))]
         else:
             t1 = t - math.pi
-            cmdmsg.position = [1.0 * (1.0 - math.cos(1.0 * t1)),
-                               1.0 * (1.0 - math.cos(2.0 * t1)),
+            cmdmsg.position = [0.5 * (1.0 - math.cos(1.0 * t1)),
+                               0.5 * (1.0 - math.cos(2.0 * t1)),
                                0.5 * (1.0 - math.cos(4.0 * t1))]
-            cmdmsg.velocity = [1.0 * (1.0 * math.sin(1.0 * t1)),
-                               1.0 * (2.0 * math.sin(2.0 * t1)),
+            cmdmsg.velocity = [0.5 * (1.0 * math.sin(1.0 * t1)),
+                               0.5 * (2.0 * math.sin(2.0 * t1)),
                                0.5 * (4.0 * math.sin(4.0 * t1))]
 
         # Add no gravity torques.

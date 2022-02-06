@@ -372,7 +372,7 @@ if __name__ == "__main__":
         controller.update(t)
         t = (time.time() - start)
         tms = t * 1000
-        if tms > 5000:
+        if tms > 5:
             rospy.logwarn(f"Update took {int(tms)}ms")
         timing_pub.publish(t)
 

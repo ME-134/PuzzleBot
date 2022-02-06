@@ -13,6 +13,7 @@
 #   term.  It also includes test code when run independently.
 #
 import rospy
+from numba import njit
 import numpy as np
 
 from functools import lru_cache
@@ -43,9 +44,10 @@ from urdf_parser_py.urdf import Robot
 #
 
 # Error functions
+@njit
 def ep(pd, pa):
     return (pd - pa)
-    
+@njit   
 def eR(Rd, Ra):
     return 0.5*(np.cross(Ra[:,0], Rd[:,0]) +
                 np.cross(Ra[:,1], Rd[:,1]) +
@@ -55,23 +57,28 @@ def eR(Rd, Ra):
 def T_from_Rp(R, p):
     return np.vstack((np.hstack((R,p)),
                       np.array([0.0, 0.0, 0.0, 1.0])))
+@njit
 def p_from_T(T):
     return T[0:3,3:4]
+@njit
 def R_from_T(T):
     return T[0:3,0:3]
 
 ### Basic Rotation Matrices about an axis: Rotx/Roty/Rotz/Rot(axis)
+@njit
 def Rx(theta):
-    c = np.cos(theta);
-    s = np.sin(theta);
+    c = np.cos(theta)
+    s = np.sin(theta)
     return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+@njit
 def Ry(theta):
-    c = np.cos(theta);
-    s = np.sin(theta);
+    c = np.cos(theta)
+    s = np.sin(theta)
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+@njit
 def Rz(theta):
-    c = np.cos(theta);
-    s = np.sin(theta);
+    c = np.cos(theta)
+    s = np.sin(theta)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
 
 def R_from_axisangle(axis, theta):
@@ -81,12 +88,14 @@ def R_from_axisangle(axis, theta):
     return np.eye(3) + np.sin(theta) * ex + (1.0-np.cos(theta)) * ex @ ex
 
 ### Quaternion To/From Rotation Matrix
+@njit
 def R_from_q(q):
     norm2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]
     return - np.eye(3) + (2/norm2) * (
       np.array([[q[1]*q[1]+q[0]*q[0],q[1]*q[2]-q[0]*q[3],q[1]*q[3]+q[0]*q[2]],
                 [q[2]*q[1]+q[0]*q[3],q[2]*q[2]+q[0]*q[0],q[2]*q[3]-q[0]*q[1]],
                 [q[3]*q[1]-q[0]*q[2],q[3]*q[2]+q[0]*q[1],q[3]*q[3]+q[0]*q[0]]]))
+@njit
 def q_from_R(R):
     A = [1.0 + R[0][0] + R[1][1] + R[2][2],
          1.0 + R[0][0] - R[1][1] - R[2][2],

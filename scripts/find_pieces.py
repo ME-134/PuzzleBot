@@ -77,6 +77,7 @@ class Controller:
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
 
         self.detector = Detector()
+        detector.init_aruco()
 
     def fix_goal_theta(self, goal_theta):
         
@@ -204,7 +205,6 @@ class Controller:
             if np.linalg.norm(goal_theta - self.lasttheta) > 6:
                 rospy.signal_shutdown("error with ikin")
                 raise RuntimeError("it pop")
-
 
         # Decide what to do based on the space.
         if (self.segment.space() == 'Joint'):

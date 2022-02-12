@@ -12,9 +12,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys, time
 
-import cv2
-import cv_bridge
-
 from sensor_msgs.msg     import JointState
 from std_msgs.msg        import Bool, Duration
 from urdf_parser_py.urdf import Robot
@@ -42,12 +39,11 @@ class Controller:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.1, .7],
-                                  [0, -0.1],])
+                                    [-.1, .7],
+                                    [0, -0.1],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
-        self.index = 0
         self.t0    = 0.0
         
         self.last_t = None
@@ -79,31 +75,34 @@ class Controller:
         self.detector = Detector()
         detector.init_aruco()
 
-    def fix_goal_theta(self, goal_theta):
-        
-        # Don't go through the table
-        if -np.pi < goal_theta[1] < 0:
-            goal_theta[1] = 0*np.pi - goal_theta[1]
-            goal_theta[2] = 0*np.pi - goal_theta[2]
-        if 2*np.pi > goal_theta[1] > np.pi:
-            goal_theta[1] = 2*np.pi - goal_theta[1]
-            goal_theta[2] = 0*np.pi - goal_theta[2]
 
-        # Don't go thru itself
-        if goal_theta[2,0] < -np.pi < self.lasttheta[2,0]:
-            goal_theta[2,0] += 2*np.pi
-        if goal_theta[2,0] > -np.pi > self.lasttheta[2,0]:
-            goal_theta[2,0] -= 2*np.pi
-        if goal_theta[2,0] < np.pi < self.lasttheta[2,0]:
-            goal_theta[2,0] += 2*np.pi
-        if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
-            goal_theta[2,0] -= 2*np.pi
-            
+    def fix_goal_theta(self, goal_theta, init_theta=None, assume_init_theta_valid=True):
+        if init_theta is None:
+            init_theta = self.lasttheta
+
+        # Define bounds
+        # Note that axis #1 is has a minimum of 0, so it is always above the table.
+        # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
+        theta_min = np.array([-np.pi/2,     0, -np.pi]).reshape((3, 1))
+        theta_max = np.array([ np.pi/2, np.pi,  np.pi]).reshape((3, 1))
+
+        # Mod by 2pi, result should be in the range [-pi, pi]
+        goal_theta = np.remainder(goal_theta + np.pi, 2*np.pi) - np.pi
+
+        if assume_init_theta_valid:
+            if np.any(theta_min > init_theta) or np.any(theta_max < init_theta):
+                raise ValueError(f"Initial theta [{init_theta}] is outside the valid bounds!")
+        if np.any(theta_min > goal_theta) or np.any(theta_max < goal_theta):
+            raise ValueError(f"Goal theta [{goal_theta}] is outside the valid bounds!")
+
+        return goal_theta
+
     def change_segment(self, segment):
         self.segment = segment
         self.t0 = self.last_t
 
     def reset(self, duration = 10):
+        # TODO rewrite this function
         rospy.loginfo("Resetting robot")
         # Compute desired theta, starting the Newton Raphson at the last theta.
         goal_pos = np.array([ 0.07, 0.04, 0.15]).reshape((3,1))
@@ -115,7 +114,7 @@ class Controller:
         #    if abs(candidate - self.lasttheta[i,0]) < abs(goal_theta[i,0] - self.lasttheta[i,0]):
         #        goal_theta[i,0] = candidate
 
-        self.fix_goal_theta(goal_theta)
+        goal_theta = self.fix_goal_theta(goal_theta)
             
         goal_theta = self.ikin(goal_pos, goal_theta)
 
@@ -126,7 +125,6 @@ class Controller:
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
-        #rospy.loginfo("Recieved state update message " + str(msg))
         self.lasttheta_state = np.array(msg.position).reshape((3,1))
         self.lastthetadot_state = np.array(msg.velocity).reshape((3, 1))
 
@@ -180,12 +178,11 @@ class Controller:
 
     # Update is called every 10ms!
     def update(self, t):
-        self.detector.aruco()
 
         dt = t - self.last_t
         self.last_t = t
 
-        # If the current segment is done, shift to the next.
+        # If the current segment is done, replace the semgent with a new one
         dur = self.segment.duration()
         if (t - self.t0 >= dur):
             if self.is_resetting:
@@ -197,7 +194,7 @@ class Controller:
             pgoal = np.array([x, y, 0.02]).reshape((3, 1))
             goal_theta = self.ikin(pgoal, self.lasttheta)
             goal_theta = np.fmod(goal_theta, 2*np.pi)
-            self.fix_goal_theta(goal_theta)
+            goal_theta = self.fix_goal_theta(goal_theta)
             print("chose location:", pgoal)
             print("goal theta: ", goal_theta)
             spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
@@ -214,8 +211,7 @@ class Controller:
             # Grab the spline output as task values.
             (p, v)    = self.segment.evaluate(t - self.t0)
             
-            if self.detector.arucoInit:
-                print(self.detector.world_to_screen(p[0, 0], p[1, 0]))
+            print(self.detector.world_to_screen(p[0, 0], p[1, 0]))
             
             theta, J = self.ikin_fast(p, self.lasttheta, return_J=True)
             thetadot  = np.linalg.inv(J[0:3, :]) @ v

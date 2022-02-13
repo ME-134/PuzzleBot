@@ -21,6 +21,42 @@ from splines import *
 
 from piece_outline_detector import Detector
 
+class Bounds:
+    # Note that axis #1 is has a minimum of 0, so it is always above the table.
+    # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
+    theta_min = np.array([-np.pi/2,     0, -np.pi]).reshape((3, 1))
+    theta_max = np.array([ np.pi/2, np.pi,  np.pi]).reshape((3, 1))
+
+    # I don't know
+    thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3, 1))
+    thetadot_min = -thetadot_max
+
+    @staticmethod
+    def is_theta_valid(theta):
+        return np.all(theta <= theta_max) and np.all(theta >= theta_min)
+
+    @staticmethod
+    def is_thetadot_valid(thetadot):
+        return np.all(thetadot <= thetadot_max) and np.all(thetadot >= thetadot_min)
+
+    @staticmethod
+    def assert_theta_valid(theta):
+        if not Bounds.is_theta_valid(theta):
+            errmsg = f"Given motor angle is out of bounds: theta={theta},
+                       min={Bounds.theta_min}, max={Bounds.theta_max}"
+            rospy.logerror(errmsg)
+            rospy.signal_shutdown(errmsg)
+            raise RuntimeError(errmsg)
+
+    @staticmethod
+    def assert_thetadot_valid(thetadot):
+        if not Bounds.is_thetadot_valid(thetadot):
+            errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot},
+                       min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
+            rospy.logerror(errmsg)
+            rospy.signal_shutdown(errmsg)
+            raise RuntimeError(errmsg)
+
 #
 #  Controller Class
 #
@@ -76,24 +112,13 @@ class Controller:
         detector.init_aruco()
 
 
-    def fix_goal_theta(self, goal_theta, init_theta=None, assume_init_theta_valid=True):
+    def fix_goal_theta(self, goal_theta, init_theta=None):
         if init_theta is None:
             init_theta = self.lasttheta
 
-        # Define bounds
-        # Note that axis #1 is has a minimum of 0, so it is always above the table.
-        # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-        theta_min = np.array([-np.pi/2,     0, -np.pi]).reshape((3, 1))
-        theta_max = np.array([ np.pi/2, np.pi,  np.pi]).reshape((3, 1))
-
         # Mod by 2pi, result should be in the range [-pi, pi]
         goal_theta = np.remainder(goal_theta + np.pi, 2*np.pi) - np.pi
-
-        if assume_init_theta_valid:
-            if np.any(theta_min > init_theta) or np.any(theta_max < init_theta):
-                raise ValueError(f"Initial theta [{init_theta}] is outside the valid bounds!")
-        if np.any(theta_min > goal_theta) or np.any(theta_max < goal_theta):
-            raise ValueError(f"Goal theta [{goal_theta}] is outside the valid bounds!")
+        Bounds.assert_theta_valid(goal_theta)
 
         return goal_theta
 
@@ -102,21 +127,20 @@ class Controller:
         self.t0 = self.last_t
 
     def reset(self, duration = 10):
-        # TODO rewrite this function
+        # Assumes that the initial theta is valid. 
+        # Will not attempt to reset a theta which is out of bounds.
+
         rospy.loginfo("Resetting robot")
-        # Compute desired theta, starting the Newton Raphson at the last theta.
+
         goal_pos = np.array([ 0.07, 0.04, 0.15]).reshape((3,1))
-        goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 4*np.pi)
-
-        # Choose fastest path to the start
-        #for i in range(goal_theta.shape[0]):
-        #    candidate = np.remainder(goal_theta[i,0], 2*np.pi)
-        #    if abs(candidate - self.lasttheta[i,0]) < abs(goal_theta[i,0] - self.lasttheta[i,0]):
-        #        goal_theta[i,0] = candidate
-
+        goal_theta = self.ikin(goal_pos, self.lasttheta)
         goal_theta = self.fix_goal_theta(goal_theta)
-            
-        goal_theta = self.ikin(goal_pos, goal_theta)
+
+        Bounds.assert_theta_valid(self.lasttheta)
+        Bounds.assert_thetadot_valid(self.lastthetadot)
+
+        # Why again???
+        # goal_theta = self.ikin(goal_pos, goal_theta)
 
         #QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration)
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
@@ -193,15 +217,11 @@ class Controller:
             x, y = self.detector.screen_to_world(x, y)
             pgoal = np.array([x, y, 0.02]).reshape((3, 1))
             goal_theta = self.ikin(pgoal, self.lasttheta)
-            goal_theta = np.fmod(goal_theta, 2*np.pi)
             goal_theta = self.fix_goal_theta(goal_theta)
-            print("chose location:", pgoal)
-            print("goal theta: ", goal_theta)
+            rospy.loginfo("chose location:", pgoal)
+            rospy.loginfo("goal theta: ", goal_theta)
             spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
             self.change_segment(spline)
-            if np.linalg.norm(goal_theta - self.lasttheta) > 6:
-                rospy.signal_shutdown("error with ikin")
-                raise RuntimeError("it pop")
 
         # Decide what to do based on the space.
         if (self.segment.space() == 'Joint'):
@@ -211,7 +231,8 @@ class Controller:
             # Grab the spline output as task values.
             (p, v)    = self.segment.evaluate(t - self.t0)
             
-            print(self.detector.world_to_screen(p[0, 0], p[1, 0]))
+            rospy.loginfo("Screen coordinates of arm: ", 
+                          self.detector.world_to_screen(p[0, 0], p[1, 0]))
             
             theta, J = self.ikin_fast(p, self.lasttheta, return_J=True)
             thetadot  = np.linalg.inv(J[0:3, :]) @ v
@@ -220,21 +241,44 @@ class Controller:
         self.lasttheta = theta
         self.lastthetadot = thetadot
 
+        effort = self.kin.grav(self.lasttheta_state)
+        self.safe_publish_cmd(theta, thetadot, effort)
+
+        if not self.sim and self.is_contacting():
+            self.reset(duration=4)
+    
+    def safe_publish_cmd(self, position, velocity, effort):
+        ''' 
+        Publish a command to update the robot's position, velocity, effort.
+        Check that the values are within reasonable bounds.
+        Meant as a safeguard so we don't break anything in real life.
+        '''
+        Bounds.assert_thetat_valid(position)
+        Bounds.assert_thetadot_valid(velocity)
+
+        # Don't command sudden changes in position
+        threshold = 1 # radian, feel free to change
+        diff = np.linalg.norm(position - self.lasttheta)
+        if diff > threshold:
+            errmsg = f"Commanded theta is too far from current theta:
+                       lasttheta={self.lasttheta}, command={position}, distance={diff}"
+            rospy.logerror(errmsg)
+            rospy.signal_shutdown(errmsg)
+            raise RuntimeError(errmsg)
+
         # Create and send the command message.  Note the names have to
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
         cmdmsg.name         = ['Thor/1', 'Thor/4', 'Thor/3']
-        cmdmsg.position     = self.lasttheta
-        cmdmsg.velocity     = self.lastthetadot
-        cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
+        cmdmsg.position     = position
+        cmdmsg.velocity     = velocity
+        cmdmsg.effort       = effort
         cmdmsg.header.stamp = rospy.Time.now()
         if not self.sim:
             self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
 
-        if not self.sim and self.is_contacting():
-            self.reset(duration=4)
 #
 #
 #  Main Code

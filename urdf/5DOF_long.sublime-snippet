@@ -1,0 +1,232 @@
+<?xml version="1.0"?>
+
+<robot name="threeDOF_long">
+  
+  <!-- *************************************************** -->
+  <!-- ******************** Kinematics ******************* -->
+  <!-- *************************************************** -->
+  <!-- Note the 'origin' tag in the joints defines the
+       shift and reorientation before the continuous joint
+       rotates around the 'axis'. -->
+
+  <link name="world"/>
+
+  <joint name="Thor/1" type="continuous">
+    <parent link="world"/>
+    <child  link="link1"/>
+    <origin xyz="-0.052 -0.2125 0" rpy="0 0 0"/>
+    <axis   xyz="0 0 1"/>
+  </joint>
+
+  <link name="link1"/>
+
+  <joint name="Thor/2" type="continuous">
+    <parent link="link1"/>
+    <child  link="link2"/>
+    <origin xyz="0 0 .085" rpy="0 0 0"/>
+    <axis   xyz="1 0 0"/>
+  </joint>
+
+  <link name="link2"/>
+
+  <joint name="Thor/3" type="continuous">
+    <parent link="link2"/>
+    <child  link="link3"/>
+    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
+    <axis   xyz="-1 0 0"/>
+  </joint>
+
+  <link name="link3"/>
+
+  <joint name="Thor/4" type="continuous">
+    <parent link="link3"/>
+    <child  link="link4"/>
+    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
+    <axis   xyz="-1 0 0"/>
+  </joint>
+
+  <link name="link4"/>
+
+  <joint name="Thor/5" type="continuous">
+    <parent link="link4"/>
+    <child  link="link5"/>
+    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
+    <axis   xyz="-1 0 0"/>
+  </joint>
+
+  <link name="link5"/>
+
+  <joint name="shifttotip" type="fixed">
+    <parent link="link5"/>
+    <child  link="tip"/>
+    <origin xyz="0 .2522 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="tip"/>
+
+
+  <!-- *************************************************** -->
+  <!-- ********************* Graphics ******************** -->
+  <!-- *************************************************** -->
+  <!-- The following is purely to make this look roboticy. -->
+  <!-- The 'origin' tag in the link/visual defines the
+       center of the object (box, cylinder, sphere, mesh)
+       but does not affect the joint chain kinematics. -->
+
+  <!-- *************** Materials / Colors **************** -->
+
+  <material name="white">    <color rgba="1.00 1.00 1.00 1"/>  </material>
+  <material name="gray">     <color rgba="0.60 0.60 0.60 1"/>  </material>
+  <material name="table">    <color rgba="0.85 0.77 0.77 1"/>  </material>
+  <material name="black">    <color rgba="0.00 0.00 0.00 1"/>  </material>
+
+  <material name="red">      <color rgba="1.00 0.00 0.00 1"/>  </material>
+  <material name="green">    <color rgba="0.00 1.00 0.00 1"/>  </material>
+  <material name="blue">     <color rgba="0.00 0.00 1.00 1"/>  </material>
+
+  <material name="cyan">     <color rgba="0.00 1.00 1.00 1"/>  </material>
+  <material name="magenta">  <color rgba="1.00 0.00 1.00 1"/>  </material>
+  <material name="yellow">   <color rgba="1.00 1.00 0.00 1"/>  </material>
+
+  <material name="orange">   <color rgba="1.00 0.65 0.00 1"/>  </material>
+
+
+  <!-- *** Table - attached to world *** -->
+
+  <joint name="attach-table" type="fixed">
+    <parent link="world"/>
+    <child  link="table"/>
+  </joint>
+
+  <link name="table">
+    <visual>
+      <origin xyz="-0.052 -0.217 .003175" rpy="0 0 0"/>
+      <geometry>
+	<box size=".3 .3 0.00635"/>
+      </geometry>
+      <material name="table"/>
+    </visual>
+  </link>
+
+  <!-- *** Yaw Motor - attached to link 1 *** -->
+
+  <joint name="attach-yawmotor" type="fixed">
+    <parent link="link1"/>
+    <child  link="yawmotor"/>
+  </joint>
+
+  <link name="yawmotor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <!-- *** Link 1 Bar - attached to link1 (yaw joint output) *** -->
+
+  <joint name="attach-link1bar" type="fixed">
+    <parent link="link1"/>
+    <child  link="link1bar"/>
+  </joint>
+
+  <link name="link1bar">
+    <visual>
+      <origin xyz="0 0 .045" rpy="0 0 0"/>
+      <geometry>
+	<cylinder length=".2794" radius="0.02"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <!-- *** Pitch 1 Motor - attached to link2 (yaw joint output) *** -->
+
+  <joint name="attach-pitch1motor" type="fixed">
+    <parent link="link2"/>
+    <child  link="pitch1motor"/>
+  </joint>
+
+  <link name="pitch1motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+  </link>
+
+  <!-- *** Link 2 Bar - attached to link2 (pitch1 joint output) *** -->
+
+  <joint name="attach-link2bar" type="fixed">
+    <parent link="link2"/>
+    <child  link="link2bar"/>
+  </joint>
+
+  <link name="link2bar">
+    <visual>
+      <origin xyz="0 .0835 0" rpy="-1.5708 0 0"/>
+      <geometry>
+	<cylinder length=".303993" radius="0.02"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <!-- *** Pitch 2 Motor - attached to link3 -->
+
+  <joint name="attach-pitch2motor" type="fixed">
+    <parent link="link3"/>
+    <child  link="pitch2motor"/>
+  </joint>
+
+  <link name="pitch2motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+  </link>
+
+  <!-- *** Link 3 Bar - attached to link3 (pitch2 joint output) *** -->
+
+  <joint name="attach-link3bar" type="fixed">
+    <parent link="link3"/>
+    <child  link="link3bar"/>
+  </joint>
+
+  <link name="link3bar">
+    <visual>
+      <origin xyz="0 .127 0" rpy="-1.5708 0 0"/>
+      <geometry>
+	<cylinder length=".254" radius="0.02"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <!-- *** Link 3 Sail - attached to link3 (pitch2 joint output) *** -->
+
+  <!-- *** Tip Ball - attached to tip *** -->
+
+  <joint name="attach-tipball" type="fixed">
+    <parent link="tip"/>
+    <child  link="tipball"/>
+  </joint>
+
+  <link name="tipball">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+      	<sphere radius="0.02"/>
+      </geometry>
+      <material name="red"/>
+    </visual>
+  </link>
+
+</robot>

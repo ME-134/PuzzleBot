@@ -24,11 +24,11 @@ from piece_outline_detector import Detector
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2,     0, -np.pi*(3/4)]).reshape((3))
-    theta_max = np.array([ np.pi/2, np.pi,  np.pi*(3/4)]).reshape((3))
+    theta_min = np.array([-np.pi/2,     0, -np.pi*(3/4)]).reshape((3, 1))
+    theta_max = np.array([ np.pi/2, np.pi,  np.pi*(3/4)]).reshape((3, 1))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3))
+    thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3, 1))
     thetadot_min = -thetadot_max
 
     @staticmethod
@@ -90,7 +90,7 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
             self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
         else:
-            self.lasttheta_state = self.lasttheta = np.array([0, np.pi/8, 0])#np.pi * np.random.rand(3, 1)
+            self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/3, np.pi/4]).reshape((3, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             
         # Create the splines.
@@ -180,7 +180,7 @@ class Controller:
 
     def ikin(self, pgoal, theta_initialguess, return_J=False, max_iter=50):
         # Start iterating from the initial guess
-        theta = theta_initialguess.reshape((3, 1))
+        theta = theta_initialguess
         print(theta)
 
         # Iterate at most 20 times (just to be safe)!
@@ -200,7 +200,7 @@ class Controller:
 
             # Take a step in the appropriate direction.  Using an
             # "inv()" though ultimately a "pinv()" would be safer.
-            theta = theta + np.linalg.inv(J[0:3, 0:3]) @ e.reshape((3,1))
+            theta = theta + np.linalg.inv(J[0:3, 0:3]) @ e
             print(theta)
 
             # Return if we have converged.

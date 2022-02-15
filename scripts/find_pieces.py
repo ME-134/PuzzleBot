@@ -79,7 +79,7 @@ class Controller:
 
         # Initialize the current segment index and starting time t0.
         self.t0    = 0.0
-        self.last_t = None
+        self.last_t = 0.0
         self.sim = sim
 
         # Also initialize the storage of the last joint position
@@ -201,7 +201,6 @@ class Controller:
             # Take a step in the appropriate direction.  Using an
             # "inv()" though ultimately a "pinv()" would be safer.
             theta = theta + np.linalg.inv(J[0:3, 0:3]) @ e
-            print(theta)
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
@@ -220,7 +219,6 @@ class Controller:
 
         dt = t - self.last_t
         self.last_t = t
-        print("update", self.last_t)
 
         # If the current segment is done, replace the semgent with a new one
         dur = self.segment.duration()
@@ -234,8 +232,8 @@ class Controller:
             pgoal = np.array([x, y, 0.02]).reshape((3, 1))
             goal_theta = self.ikin(pgoal, self.lasttheta)
             goal_theta = self.fix_goal_theta(goal_theta)
-            rospy.loginfo("chose location:", pgoal)
-            rospy.loginfo("goal theta: ", goal_theta)
+            rospy.loginfo("chose location:" + str(pgoal))
+            rospy.loginfo("goal theta: " + str(goal_theta))
             spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
             self.change_segment(spline)
 
@@ -285,7 +283,7 @@ class Controller:
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['Thor/1', 'Thor/4', 'Thor/3']
+        cmdmsg.name         = ['Thor/1', 'Thor/6', 'Thor/3']
         cmdmsg.position     = position
         cmdmsg.velocity     = velocity
         cmdmsg.effort       = effort
@@ -323,8 +321,6 @@ if __name__ == "__main__":
 
     # Run the servo loop until shutdown (killed or ctrl-C'ed).
     starttime = rospy.Time.now()
-    controller.last_t = starttime.to_sec()
-    controller.t0 = controller.last_t
     while not rospy.is_shutdown():
 
         # Current time (since start)

@@ -24,36 +24,34 @@ from piece_outline_detector import Detector
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2,     0, -np.pi]).reshape((3, 1))
-    theta_max = np.array([ np.pi/2, np.pi,  np.pi]).reshape((3, 1))
+    theta_min = np.array([-np.pi/2,     0, -np.pi*(3/4)]).reshape((3))
+    theta_max = np.array([ np.pi/2, np.pi,  np.pi*(3/4)]).reshape((3))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3, 1))
+    thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3))
     thetadot_min = -thetadot_max
 
     @staticmethod
     def is_theta_valid(theta):
-        return np.all(theta <= theta_max) and np.all(theta >= theta_min)
+        return np.all(theta <= Bounds.theta_max) and np.all(theta >= Bounds.theta_min)
 
     @staticmethod
     def is_thetadot_valid(thetadot):
-        return np.all(thetadot <= thetadot_max) and np.all(thetadot >= thetadot_min)
+        return np.all(thetadot <= Bounds.thetadot_max) and np.all(thetadot >= Bounds.thetadot_min)
 
     @staticmethod
     def assert_theta_valid(theta):
         if not Bounds.is_theta_valid(theta):
-            errmsg = f"Given motor angle is out of bounds: theta={theta},
-                       min={Bounds.theta_min}, max={Bounds.theta_max}"
-            rospy.logerror(errmsg)
+            errmsg = f"Given motor angle is out of bounds: \ntheta={theta}\nmin={Bounds.theta_min}\nmax={Bounds.theta_max}"
+            #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
             raise RuntimeError(errmsg)
 
     @staticmethod
     def assert_thetadot_valid(thetadot):
         if not Bounds.is_thetadot_valid(thetadot):
-            errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot},
-                       min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
-            rospy.logerror(errmsg)
+            errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot}, min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
+            #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
             raise RuntimeError(errmsg)
 
@@ -81,7 +79,6 @@ class Controller:
 
         # Initialize the current segment index and starting time t0.
         self.t0    = 0.0
-        
         self.last_t = None
         self.sim = sim
 
@@ -93,7 +90,7 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
             self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
         else:
-            self.lasttheta_state = self.lasttheta = np.pi * np.random.rand(3, 1)
+            self.lasttheta_state = self.lasttheta = np.array([0, np.pi/8, 0])#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             
         # Create the splines.
@@ -109,7 +106,7 @@ class Controller:
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
 
         self.detector = Detector()
-        detector.init_aruco()
+        self.detector.init_aruco()
 
 
     def fix_goal_theta(self, goal_theta, init_theta=None):
@@ -181,17 +178,35 @@ class Controller:
             return theta, J
         return theta
 
-    def ikin(self, pgoal, theta_initialguess):
+    def ikin(self, pgoal, theta_initialguess, return_J=False, max_iter=50):
         # Start iterating from the initial guess
-        theta = theta_initialguess
+        theta = theta_initialguess.reshape((3, 1))
+        print(theta)
 
-        # Iterate at most 50 times (just to be safe)!
-        for i in range(50):
+        # Iterate at most 20 times (just to be safe)!
+        for i in range(max_iter):
+            # Figure out where the current joint values put us:
+            # Compute the forward kinematics for this iteration.
+            (T,J) = self.kin.fkin(theta)
 
-            theta = self.ikin_fast(pgoal, theta)
+            # Extract the position and use only the 3x3 linear
+            # Jacobian (for 3 joints).  Generalize this for bigger
+            # mechanisms if/when we need.
+            p = p_from_T(T)
+
+            # Compute the error.  Generalize to also compute
+            # orientation errors if/when we need.
+            e = pgoal - p
+
+            # Take a step in the appropriate direction.  Using an
+            # "inv()" though ultimately a "pinv()" would be safer.
+            theta = theta + np.linalg.inv(J[0:3, 0:3]) @ e.reshape((3,1))
+            print(theta)
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
+                if return_J:
+                    return theta, J
                 return theta
 
         # After 50 iterations, return the failure and zero instead!
@@ -205,6 +220,7 @@ class Controller:
 
         dt = t - self.last_t
         self.last_t = t
+        print("update", self.last_t)
 
         # If the current segment is done, replace the semgent with a new one
         dur = self.segment.duration()
@@ -234,7 +250,7 @@ class Controller:
             rospy.loginfo("Screen coordinates of arm: ", 
                           self.detector.world_to_screen(p[0, 0], p[1, 0]))
             
-            theta, J = self.ikin_fast(p, self.lasttheta, return_J=True)
+            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1)
             thetadot  = np.linalg.inv(J[0:3, :]) @ v
 
         # Save the position (to be used as an estimate next time).
@@ -253,15 +269,14 @@ class Controller:
         Check that the values are within reasonable bounds.
         Meant as a safeguard so we don't break anything in real life.
         '''
-        Bounds.assert_thetat_valid(position)
+        Bounds.assert_theta_valid(position)
         Bounds.assert_thetadot_valid(velocity)
 
         # Don't command sudden changes in position
         threshold = 1 # radian, feel free to change
         diff = np.linalg.norm(position - self.lasttheta)
         if diff > threshold:
-            errmsg = f"Commanded theta is too far from current theta:
-                       lasttheta={self.lasttheta}, command={position}, distance={diff}"
+            errmsg = f"Commanded theta is too far from current theta: lasttheta={self.lasttheta}, command={position}, distance={diff}"
             rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
             raise RuntimeError(errmsg)
@@ -309,6 +324,7 @@ if __name__ == "__main__":
     # Run the servo loop until shutdown (killed or ctrl-C'ed).
     starttime = rospy.Time.now()
     controller.last_t = starttime.to_sec()
+    controller.t0 = controller.last_t
     while not rospy.is_shutdown():
 
         # Current time (since start)

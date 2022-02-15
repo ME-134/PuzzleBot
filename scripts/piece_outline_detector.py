@@ -54,23 +54,30 @@ class Detector:
         self.latestImage = img
         bluedots_img, binary_img = self.process(img)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
-        self.pub2.publish(self.bridge.cv2_to_imgmsg(binary_img))
+        self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
         
     def init_aruco(self):
-        image_msg = rospy.wait_for_msg("/usb_cam/image_raw")
-        image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
+        image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
 
         all_corners, _, _ = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
         rospy.loginfo(all_corners)
         if not all_corners:
             raise RuntimeError("Aruco marker not found!!")
+        '''
+        all_corners = np.array(all_corners).reshape((-1,2))
+        ids = np.array(ids).reshape((-1))
+        A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
+        coords = np.random.rand(40, 2)
+        M, _, _, _ = np.linalg.lstsq(A, coords, rcond=None)
+        self.M = M.transpose()'''
 
         box = all_corners[0][0]
         xmin = np.min(box[:, 0])
         xmax = np.max(box[:, 0])
         ymin = np.min(box[:, 1])
         ymax = np.max(box[:, 1])
-        rospy.loginfo("xmin, xmax, ymin, ymax: ", xmin, xmax, ymin, ymax)
+        #rospy.loginfo("xmin, xmax, ymin, ymax: ", xmin, xmax, ymin, ymax)
 
         w = 0.0195
         self.xb = (xmax - xmin) / w

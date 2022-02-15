@@ -3,6 +3,7 @@
        roslaunch command line. -->
   <arg name="model" default="$(find HW1)/urdf/threeDOF.urdf"/>
   <arg name="cfg"   default="$(find HW1)/rviz/viewurdf.rviz"/>
+  <arg name="sim"   default="False"/>
 
 
   <!-- Load the URDF file into the robot_description parameter. -->

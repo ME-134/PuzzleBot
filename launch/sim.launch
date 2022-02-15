@@ -15,6 +15,16 @@
 	name="rsp">
     <param name="ignore_timestamp" value="true"/>
   </node>
+  
+    <!-- Start the camera node. -->
+  <node pkg ="usb_cam"
+	type="usb_cam_node"
+	name="usb_cam">
+    <rosparam>
+      camera_name: "logitech"
+      pixel_format: "yuyv"
+    </rosparam>
+  </node>
 
 
   <!-- Run the rviz visualization -->

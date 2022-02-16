@@ -32,7 +32,8 @@
   <joint name="Thor/3" type="continuous">
     <parent link="link2"/>
     <child  link="link3"/>
-    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
+    <!--<origin xyz="-.0368 .1651 0" rpy="0 0 0"/>-->
+    <origin xyz="-.0368 .2794 0" rpy="0 0 0"/>
     <axis   xyz="-1 0 0"/>
   </joint>
 
@@ -41,7 +42,8 @@
   <joint name="shifttotip" type="fixed">
     <parent link="link3"/>
     <child  link="tip"/>
-    <origin xyz="0 .2522 0" rpy="0 0 0"/>
+    <!--<origin xyz="0 .2522 0" rpy="0 0 0"/>-->
+    <origin xyz="-.0368 .303993 0" rpy="0 0 0"/>
   </joint>
 
   <link name="tip"/>

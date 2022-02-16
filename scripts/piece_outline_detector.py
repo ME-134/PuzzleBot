@@ -18,7 +18,7 @@ import random
 
 import os
 
-from sensor_msgs.msg  import Image
+from sensor_msgs.msg  import Image, CameraInfo
 
 
 #
@@ -26,6 +26,12 @@ from sensor_msgs.msg  import Image
 #
 class Detector:
     def __init__(self):
+        # Grab an instance of the camera data.
+        rospy.loginfo("Waiting for camera info...")
+        msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo);
+        self.camD = np.array(msg.D).reshape(5)
+        self.camK = np.array(msg.K).reshape((3,3))
+        
         # Subscribe to the incoming image topic.  Using a queue size
         # of one means only the most recent message is stored for the
         # next subscriber callback.
@@ -60,19 +66,29 @@ class Detector:
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
         image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
 
-        all_corners, _, _ = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
+        (all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
         rospy.loginfo(all_corners)
         if not all_corners:
-            raise RuntimeError("Aruco marker not found!!")
-        '''
+            raise RuntimeError("Aruco markers not found!!")
+        
+        # Undistort corners
         all_corners = np.array(all_corners).reshape((-1,2))
-        ids = np.array(ids).reshape((-1))
-        A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
-        coords = np.random.rand(40, 2)
-        M, _, _, _ = np.linalg.lstsq(A, coords, rcond=None)
-        self.M = M.transpose()'''
+        all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
+        all_corners = np.array(all_corners).reshape((-1,2))
+        
+        ids = ids.flatten()
+        '''A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
+        points = np.array(
+            [[1,1]
+            ]
+        )
+        M, _, _, _ = np.linalg.lstsq(A, points, rcond=None)
+        self.M = M.transpose()
+        self.M = cv2.getPerspectiveTransform(all_corners, points)
+        print(list(ids.flatten()).index(0))
+        print(all_corners)'''
 
-        box = all_corners[0][0]
+        box = all_corners[:4]
         xmin = np.min(box[:, 0])
         xmax = np.max(box[:, 0])
         ymin = np.min(box[:, 1])
@@ -90,6 +106,9 @@ class Detector:
         return (self.xa + x * self.xb, self.ya + y * self.yb)
         
     def screen_to_world(self, x, y):
+        coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
+        #points = cv2.perspectiveTransform(coords, self.M)
+        x, y = coords[0,0,:]
         return ((x - self.xa) / self.xb, (y - self.ya) / self.yb)
         
     def get_random_piece_center(self):
@@ -216,6 +235,10 @@ if __name__ == "__main__":
 
     # Instantiate the Detector object.
     detector = Detector()
+    
+    # Use Aruco markers to find transforms
+    detector.init_aruco()
+    print(detector.screen_to_world(2, 4))
     '''
     indir = './vision/sample_imgs'
     outdir = './vision/out'
@@ -227,6 +250,7 @@ if __name__ == "__main__":
         cv2.imwrite(outfilepath, result) 
     exit(1)
     '''
+    
     # Continually process until shutdown.
     rospy.loginfo("Continually processing latest pending images...")
     rospy.spin()

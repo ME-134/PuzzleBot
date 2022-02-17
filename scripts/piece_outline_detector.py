@@ -109,7 +109,7 @@ class Detector:
     def getPiecesesAndPublish(self, msg):
         img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         self.latestImage = img
-        bluedots_img, binary_img = self.better_process(img)
+        bluedots_img, binary_img = self.process(img)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
         
@@ -170,7 +170,7 @@ class Detector:
         print("pieces centers:", self.pieces)
         return random.choice(self.pieces)
 
-    def better_process(self, img):
+    def process(self, img):
 
         # Filter out background
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -274,63 +274,6 @@ class Detector:
         self.pieces = pieces
 
         return img, markers
-        
-
-    def process(self, img):
-
-        edges = cv2.Canny(img, 20, 200)
-        edges = cv2.dilate(edges, None, iterations=2)
-        blocks = 255 - edges
-        n, res, stats, centroids = cv2.connectedComponentsWithStats(blocks)
-        res = res.astype(np.uint8)
-        
-        piece_centers = list()
-
-        def isPuzzlePiece(stat):
-            xmin, ymin, width, height, area = tuple(stat)
-            if not (1000 < area < 4000):
-                return False
-            if not (50 < width  < 150):
-                return False
-            if not (50 < height < 150):
-                return False
-            return True
-            '''
-            if not (5000 < area < 10000):
-                return False
-            if not (60 < width  < 200):
-                return False
-            if not (60 < height < 200):
-                return False
-            return True
-            '''
-        #print(stats)
-        for i, stat in enumerate(stats):
-            area = stat[-1]
-            centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            if isPuzzlePiece(stat):
-                piece = (res == i)
-                res[piece] = 255
-                r = int(np.sqrt(area) / 4) + 1
-                color = (np.random.random(size=3) * 255).astype(np.uint8)
-                #print(centroid, r, color)
-                #cv2.circle(img, centroid, r, color) 
-                cv2.circle(img, centroid, r, (255, 0, 0), -1)
-                #cv2.dilate(piece, None, iterations=1)
-                piece_centers.append(centroid)
-            else:
-                res[res == i] = 0
-
-        self.piece_centers = piece_centers
-
-        #res = cv2.dilate(res, None, iterations=2)
-        #res = cv2.erode(res, None, iterations=2)
-        #res = cv2.dilate(res, None, iterations=2)
-        #print(n, stats, centroids)
-        #edges = cv2.erode(edges, None, iterations=1)
-        #edges = cv2.erode(edges, None, iterations=1)
-        #edges = cv2.dilate(edges, None, iterations=1)
-        return img, res
 
 #
 #  Main Code

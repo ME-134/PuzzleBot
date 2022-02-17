@@ -20,7 +20,7 @@
 
   <link name="link1"/>
 
-  <joint name="Thor/4" type="continuous">
+  <joint name="Thor/6" type="continuous">
     <parent link="link1"/>
     <child  link="link2"/>
     <origin xyz="0 0 .085" rpy="0 0 0"/>

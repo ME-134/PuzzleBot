@@ -24,8 +24,8 @@ from piece_outline_detector import Detector
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2,     0, -np.pi*(3/4)]).reshape((3, 1))
-    theta_max = np.array([ np.pi/2, np.pi,  np.pi*(3/4)]).reshape((3, 1))
+    theta_min = np.array([-np.pi/2, -np.pi/12, -np.pi*0.9]).reshape((3, 1))
+    theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9]).reshape((3, 1))
 
     # I don't know
     thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3, 1))
@@ -90,7 +90,7 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
             self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
         else:
-            self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/3, np.pi/4]).reshape((3, 1))#np.pi * np.random.rand(3, 1)
+            self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/6, np.pi/4]).reshape((3, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             
         # Create the splines.
@@ -226,16 +226,20 @@ class Controller:
             if self.is_resetting:
                 self.is_resetting = False
                 
-            # FIND NEW PUZZLE PIECE
-            x, y = self.detector.get_random_piece_center()
-            x, y = self.detector.screen_to_world(x, y)
-            pgoal = np.array([x, y, 0.02]).reshape((3, 1))
-            goal_theta = self.ikin(pgoal, self.lasttheta)
-            goal_theta = self.fix_goal_theta(goal_theta)
-            rospy.loginfo("chose location:" + str(pgoal))
-            rospy.loginfo("goal theta: " + str(goal_theta))
-            spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
-            self.change_segment(spline)
+            #TEMP
+            if self.sim:
+                self.reset()
+            else:
+                # FIND NEW PUZZLE PIECE
+                x, y = self.detector.get_random_piece_center()
+                x, y = self.detector.screen_to_world(x, y)
+                pgoal = np.array([x, y, 0.02]).reshape((3, 1))
+                goal_theta = self.ikin(pgoal, self.lasttheta)
+                goal_theta = self.fix_goal_theta(goal_theta)
+                rospy.loginfo("chose location:" + str(pgoal))
+                rospy.loginfo("goal theta: " + str(goal_theta))
+                spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
+                self.change_segment(spline)
 
         # Decide what to do based on the space.
         if (self.segment.space() == 'Joint'):

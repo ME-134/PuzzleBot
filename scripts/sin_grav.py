@@ -19,6 +19,42 @@ from urdf_parser_py.urdf import Robot
 from force_kin import *
 from splines import *
 
+motor_names = ['Thor/1', 'Thor/6', 'Thor/3']
+
+class Bounds:
+    # Note that axis #1 is has a minimum of 0, so it is always above the table.
+    # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
+    theta_min = np.array([-np.pi/2, -np.pi/12, -np.pi*0.9]).reshape((3, 1))
+    theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9]).reshape((3, 1))
+
+    # I don't know
+    thetadot_max = np.array([np.pi, np.pi, np.pi]).reshape((3, 1))
+    thetadot_min = -thetadot_max
+
+    @staticmethod
+    def is_theta_valid(theta):
+        return np.all(theta <= Bounds.theta_max) and np.all(theta >= Bounds.theta_min)
+
+    @staticmethod
+    def is_thetadot_valid(thetadot):
+        return np.all(thetadot <= Bounds.thetadot_max) and np.all(thetadot >= Bounds.thetadot_min)
+
+    @staticmethod
+    def assert_theta_valid(theta):
+        if not Bounds.is_theta_valid(theta):
+            errmsg = f"Given motor angle is out of bounds: \ntheta={theta}\nmin={Bounds.theta_min}\nmax={Bounds.theta_max}"
+            #rospy.logerror(errmsg)
+            rospy.signal_shutdown(errmsg)
+            raise RuntimeError(errmsg)
+
+    @staticmethod
+    def assert_thetadot_valid(thetadot):
+        if not Bounds.is_thetadot_valid(thetadot):
+            errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot}, min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
+            #rospy.logerror(errmsg)
+            rospy.signal_shutdown(errmsg)
+            raise RuntimeError(errmsg)
+            
 #
 #  Controller Class
 #
@@ -58,9 +94,8 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
             self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
         else:
-            self.lasttheta_state = self.lasttheta = np.pi * np.random.rand(3, 1)
+            self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/6, np.pi/4]).reshape((3, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
-            #self.lasttheta = np.array([1.49567867, 0.95467971, 2.29442065]).reshape((3,1))    # Test case
             
 
         # Set the tip targets (in 3x1 column vectors).
@@ -207,12 +242,12 @@ class Controller:
             return theta, J
         return theta
 
-    def ikin(self, pgoal, theta_initialguess):
+    def ikin(self, pgoal, theta_initialguess, return_J=False, max_iter=50, warning=True):
         # Start iterating from the initial guess
         theta = theta_initialguess
 
-        # Iterate at most 50 times (just to be safe)!
-        for i in range(50):
+        # Iterate at most 20 times (just to be safe)!
+        for i in range(max_iter):
             # Figure out where the current joint values put us:
             # Compute the forward kinematics for this iteration.
             (T,J) = self.kin.fkin(theta)
@@ -221,7 +256,6 @@ class Controller:
             # Jacobian (for 3 joints).  Generalize this for bigger
             # mechanisms if/when we need.
             p = p_from_T(T)
-            J = J[0:3, 0:3]
 
             # Compute the error.  Generalize to also compute
             # orientation errors if/when we need.
@@ -229,16 +263,24 @@ class Controller:
 
             # Take a step in the appropriate direction.  Using an
             # "inv()" though ultimately a "pinv()" would be safer.
-            theta = theta + np.linalg.inv(J) @ e
+            theta = theta + np.linalg.inv(J[0:3, 0:3]) @ e
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
+                if return_J:
+                    return theta, J
                 return theta
 
-        # After 50 iterations, return the failure and zero instead!
-        rospy.logwarn("Unable to converge to [%f,%f,%f]",
-                      pgoal[0], pgoal[1], pgoal[2]);
-        return 0 * theta
+        if warning:
+            # After 50 iterations, return the failure and zero instead!
+            rospy.logwarn("Unable to converge to [%f,%f,%f]",
+                          pgoal[0], pgoal[1], pgoal[2]);
+            if return_J:
+                return theta_initialguess, J
+            return theta_initialguess
+        if return_J:
+            return theta, J
+        return theta
 
 
     # Update is called every 10ms!
@@ -306,7 +348,7 @@ class Controller:
             old = self.lasttheta
             
             '''
-            theta, J = self.ikin_fast(p, self.lasttheta, return_J=True)
+            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
             thetadot  = np.linalg.inv(J[0:3, :]) @ v
             
             #thetadot = (Jw_inv[0:3, 0:3] @ (v[0:3] + lam*e_p)).reshape(3, 1) #+ (np.eye(3) - Jw_inv @ J) @ theta_second
@@ -315,22 +357,43 @@ class Controller:
         # Save the position (to be used as an estimate next time).
         self.lasttheta = theta
         self.lastthetadot = thetadot
+        effort = self.kin.grav(self.lasttheta_state)
+        self.safe_publish_cmd(theta, thetadot, effort)
+        
+
+        if not self.sim and self.is_contacting() and self.is_oscillating():
+            self.reset(duration=4)
+    
+    def safe_publish_cmd(self, position, velocity, effort):
+        ''' 
+        Publish a command to update the robot's position, velocity, effort.
+        Check that the values are within reasonable bounds.
+        Meant as a safeguard so we don't break anything in real life.
+        '''
+        Bounds.assert_theta_valid(position)
+        Bounds.assert_thetadot_valid(velocity)
+
+        # Don't command sudden changes in position
+        threshold = 1 # radian, feel free to change
+        diff = np.linalg.norm(position - self.lasttheta)
+        if diff > threshold:
+            errmsg = f"Commanded theta is too far from current theta: lasttheta={self.lasttheta}, command={position}, distance={diff}"
+            rospy.logerror(errmsg)
+            rospy.signal_shutdown(errmsg)
+            raise RuntimeError(errmsg)
 
         # Create and send the command message.  Note the names have to
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['Thor/1', 'Thor/4', 'Thor/3']
-        cmdmsg.position     = self.lasttheta
-        cmdmsg.velocity     = self.lastthetadot
-        cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
+        cmdmsg.name         = motor_names
+        cmdmsg.position     = position
+        cmdmsg.velocity     = velocity
+        cmdmsg.effort       = effort
         cmdmsg.header.stamp = rospy.Time.now()
         if not self.sim:
             self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
-
-        if not self.sim and self.is_contacting() and self.is_oscillating():
-            self.reset(duration=4)
 #
 #
 #  Main Code

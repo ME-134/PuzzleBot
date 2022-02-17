@@ -21,6 +21,8 @@ from splines import *
 
 from piece_outline_detector import Detector
 
+motor_names = ['Thor/1', 'Thor/6', 'Thor/3']
+
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
@@ -178,10 +180,9 @@ class Controller:
             return theta, J
         return theta
 
-    def ikin(self, pgoal, theta_initialguess, return_J=False, max_iter=50):
+    def ikin(self, pgoal, theta_initialguess, return_J=False, max_iter=50, warning=True):
         # Start iterating from the initial guess
         theta = theta_initialguess
-        print(theta)
 
         # Iterate at most 20 times (just to be safe)!
         for i in range(max_iter):
@@ -208,10 +209,17 @@ class Controller:
                     return theta, J
                 return theta
 
-        # After 50 iterations, return the failure and zero instead!
-        rospy.logwarn("Unable to converge to [%f,%f,%f]",
-                      pgoal[0], pgoal[1], pgoal[2]);
-        return theta_initialguess
+        if warning:
+            # After 50 iterations, return the failure and zero instead!
+            rospy.logwarn("Unable to converge to [%f,%f,%f]",
+                          pgoal[0], pgoal[1], pgoal[2]);
+            if return_J:
+                return theta_initialguess, J
+            return theta_initialguess
+        if return_J:
+            return theta, J
+        return theta
+        
 
 
     # Update is called every 10ms!
@@ -252,7 +260,7 @@ class Controller:
             rospy.loginfo("Screen coordinates of arm: ", 
                           self.detector.world_to_screen(p[0, 0], p[1, 0]))
             
-            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1)
+            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
             thetadot  = np.linalg.inv(J[0:3, :]) @ v
 
         # Save the position (to be used as an estimate next time).
@@ -287,7 +295,7 @@ class Controller:
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['Thor/1', 'Thor/6', 'Thor/3']
+        cmdmsg.name         = motor_names
         cmdmsg.position     = position
         cmdmsg.velocity     = velocity
         cmdmsg.effort       = effort

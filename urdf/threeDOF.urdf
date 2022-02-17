@@ -154,7 +154,7 @@
     <visual>
       <origin xyz="0 .0835 0" rpy="-1.5708 0 0"/>
       <geometry>
-	<cylinder length=".167" radius="0.02"/>
+	<cylinder length=".3" radius="0.02"/>
       </geometry>
       <material name="black"/>
     </visual>
@@ -188,7 +188,7 @@
     <visual>
       <origin xyz="0 .127 0" rpy="-1.5708 0 0"/>
       <geometry>
-	<cylinder length=".254" radius="0.02"/>
+	<cylinder length=".35" radius="0.02"/>
       </geometry>
       <material name="black"/>
     </visual>

@@ -401,7 +401,7 @@ class Controller:
 if __name__ == "__main__":
     
     # Prepare/initialize this node.
-    rospy.init_node('straightline')
+    rospy.init_node('sin_grav')
 
     # Instantiate the controller object, encapsulating all
     # the computation and local variables.

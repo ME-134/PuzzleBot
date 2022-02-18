@@ -1,3 +1,4 @@
+from glob import glob
 import numpy as np 
 import pandas as pd
 from tqdm import tqdm
@@ -26,15 +27,26 @@ device = 'cuda'
 torch.hub.set_dir('C:/Code/CS134/temp')
 
 class ImagesDS(data.Dataset):
-    def __init__(self, files, transform):
+    def __init__(self, files, length, transform):
         self.files = files
-        self.len = len(files)
+        self.len = length
         self.transform = transform
 
     def __getitem__(self, index):
+        img_path = self.files[index]
+        np_image = cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
+        while min(np_image.shape[0], np_image.shape[1]) < 200:
+            np_image= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
         
-                
-        return torch.from_numpy(np_image)
+        np_negative = cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
+        while min(np_negative.shape[0], np_negative.shape[1]) < 200:
+            np_negative= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
+
+        anchor = self.transform(np_image)
+        positive = self.transform(np_image)
+        negative = self.transform(np_negative)
+
+        return anchor, positive, negative
 
     def __len__(self):
         # The number of samples in the dataset.
@@ -44,16 +56,16 @@ class RandomCrop(object):
     def __init__(self, im_size):
         self.im_size = im_size
     def __call__(self, sample):
-        c_max, r_max = sample[0].shape
+        c_max, r_max, _ = sample.shape
         c, r = np.random.randint(0, c_max-self.im_size), np.random.randint(0, r_max-self.im_size)
-        sample = sample[:,c:c+self.im_size,r:r+self.im_size]
+        sample = sample[c:c+self.im_size,r:r+self.im_size, :]
         return sample
 
 class Resize(object):
     def __init__(self, im_size):
         self.im_size = im_size
     def __call__(self, sample):
-        return cv2.resize(sample, (self.im_size[0], self.im_size[1]))
+        return cv2.resize(sample, (self.im_size, self.im_size))
     
 class RandomFlip(object):
     def __init__(self, proba = 0.5):
@@ -65,6 +77,15 @@ class RandomFlip(object):
         if(np.random.random() < self.proba):
             sample = np.flip(sample, 2)
         return sample
+
+class RandomRotate(object):
+    def __init__(self, proba = 0.3) -> None:
+        self.proba = proba
+    def __call__(self, sample):
+        if(np.random.random() < self.proba):
+            sample = np.rot90(sample,axes=(-2,-1))
+        return sample
+        
 
 class ToTensor(object):
     def __call__(self, sample):
@@ -100,14 +121,15 @@ def train_model(model, train_loader, val_loader, optimizer, num_epochs, batch_si
 
             running_loss = 0
             bar = tqdm(enumerate(dataloaders[phase]), total=dataset_sizes[phase])
-            for i, (x, y) in bar:
+            for i, (anchor, positive, negative) in bar:
                 #batch_size x n_channel x width x height
-                x,y = x.to(device), y.to(device)
+                anchor, positive, negative = anchor.permute(0, 3, 1, 2).to(device), positive.permute(0, 3, 1, 2).to(device), negative.permute(0, 3, 1, 2).to(device)
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
-                    outputs = model(x)
-                    np_outputs = to_numpy(outputs)
-                    loss = criterion(outputs, y)
+                    outputs_anchor = model(anchor)
+                    outputs_positive = model(positive)
+                    outputs_negative = model(negative)
+                    loss = criterion(outputs_anchor, outputs_positive, outputs_negative)
                     
                     # backward + optimize only if in training phase
                     if phase == 'train':
@@ -149,14 +171,13 @@ if __name__=='__main__':
 
     accountant.load_accountant(args.accountant_file, retrain_model = args.retrain_model, tag = args.tag)
 
-    train_composed = None
-    val_composed = None
+    train_files = glob('C:/Code/CS134/data/train2014/train2014/*.jpg')
 
-    train_composed = transforms.Compose([Resize(accountant.image_size)])
-    val_composed = transforms.Compose([Resize(accountant.image_size)])
+    train_composed = transforms.Compose([RandomCrop(accountant.image_size), RandomFlip(), ToTensor()])
+    val_composed = transforms.Compose([RandomCrop(accountant.image_size), RandomFlip(), ToTensor()])
     
-    ds_train = ImagesDS(train_files, train_composed)
-    ds_val = ImagesDS(train_files, val_composed)
+    ds_train = ImagesDS(train_files, 16_000, train_composed)
+    ds_val = ImagesDS(train_files[::10], 1_000, val_composed)
     model = accountant.model
     print(model)
 
@@ -164,8 +185,8 @@ if __name__=='__main__':
 
 
     batch_size = accountant.batch_size
-    train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = data.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=0)
+    train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=False, num_workers=4)
+    val_loader = data.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=4)
     optimizer = accountant.optimizer
     model = train_model(model, train_loader, val_loader, 
                          optimizer, accountant.train_epochs, batch_size, accountant.criterion)

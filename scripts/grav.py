@@ -106,7 +106,7 @@ class Generator:
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['Thor/1', 'Thor/4', 'Thor/3']
+        cmdmsg.name         = ['Thor/1', 'Thor/6', 'Thor/3']
         cmdmsg.position     = [np.nan, np.nan, np.nan]#theta
         cmdmsg.velocity     = [np.nan, np.nan, np.nan]
         cmdmsg.effort       = self.kin.grav(self.lasttheta_state)

@@ -19,6 +19,8 @@ import random
 import os
 
 from sensor_msgs.msg  import Image, CameraInfo
+from nav_msgs.msg import OccupancyGrid, MapMetaData
+from geometry_msgs.msg import Pose, Point, Quaternion
 
 class PuzzlePiece:
     def __init__(self, x, y, w, h, area):
@@ -86,8 +88,14 @@ class Detector:
         # of one means only the most recent message is stored for the
         # next subscriber callback.
         #rospy.init_node('detector')
-        rospy.Subscriber("/usb_cam/image_raw", Image, self.getPiecesesAndPublish,
-                         queue_size=1)
+        self.imgsub = rospy.Subscriber("/usb_cam/image_raw", Image, self.getPiecesesAndPublish,
+                                        queue_size=1)
+        
+        self.map_pub = rospy.Publisher('map', OccupancyGrid)
+        self.map_data_pub = rospy.Publisher('map_metadata', 
+                                             MapMetaData)
+        self.map_pub_counter = 0
+        self.map_pub_every = 50
 
         # Set up the OpenCV Bridge.
         self.bridge = cv_bridge.CvBridge()
@@ -127,6 +135,21 @@ class Detector:
         all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
         
+        
+        #Real Coordinates
+        world1 = np.array([-.3543, -.0046])
+        world2 = np.array([.1696, 0.1574])
+        
+        box1 = all_corners[0:4]
+        box2 = all_corners[4:8]
+        screen1 = np.mean(box1, axis=0)
+        screen2 = np.mean(box2, axis=0)
+        #print(screen1, screen2)
+        
+        #screen1 = (box1])
+        #screen2 = (all_corners[0][0])
+        
+        
         ids = ids.flatten()
         '''A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
         points = np.array(
@@ -135,9 +158,7 @@ class Detector:
         )
         M, _, _, _ = np.linalg.lstsq(A, points, rcond=None)
         self.M = M.transpose()
-        self.M = cv2.getPerspectiveTransform(all_corners, points)
-        print(list(ids.flatten()).index(0))
-        print(all_corners)'''
+        self.M = cv2.getPerspectiveTransform(all_corners, points)'''
 
         box = all_corners[:4]
         xmin = np.min(box[:, 0])
@@ -149,11 +170,20 @@ class Detector:
         w = 0.0195
         self.xb = (xmax - xmin) / w
         self.xa = xmin - self.xb * (-0.337)
-        self.yb = -(ymax - ymin) / w
+        self.yb = -(ymax - ymin) / w 
         self.ya = ymin - self.yb * (0.001)
         
+        #print(screen1, screen2)
+        #print((world2[0] - world1[0]))
+        #print((world2[1] - world1[1]))
+        
+        self.xb = (screen2[0] - screen1[0]) / (world2[0] - world1[0])
+        self.xa = screen1[0] - self.xb * (world1[0])
+        self.yb = (screen2[1] - screen1[1]) / (world2[1] - world1[1])* 0.16 / 0.14
+        self.ya = screen1[1] - self.yb * (world1[1])
+        
     def world_to_screen(self, x, y):
-        print(self.xa, self.xb, self.ya, self.yb, x, y)
+        #return self.a + x * self.b
         return (self.xa + x * self.xb, self.ya + y * self.yb)
         
     def screen_to_world(self, x, y):
@@ -169,6 +199,37 @@ class Detector:
     def get_random_piece(self):
         print("pieces centers:", self.pieces)
         return random.choice(self.pieces)
+        
+    def publish_map_msg(self, img, force=False):
+        self.map_pub_counter = (self.map_pub_counter + 1) % self.map_pub_every
+        if not force and self.map_pub_counter > 0:
+            return
+        
+        grid_msg = OccupancyGrid()
+
+        # Set up the header.
+        grid_msg.header.stamp = rospy.Time.now()
+        grid_msg.header.frame_id = "map"
+
+        # .info is a nav_msgs/MapMetaData message. 
+        grid_msg.info.resolution = 0.00095
+        grid_msg.info.width = img.shape[1]
+        grid_msg.info.height = img.shape[0]
+        
+        # Rotated maps are not supported... quaternion represents no
+        # rotation. 
+        grid_msg.info.origin = Pose(Point(-0.38, -0.05, 0),
+                               Quaternion(0, 0, 0, 1))
+
+        # Flatten the numpy array into a list of integers from 0-100.
+        # This assumes that the grid entries are probalities in the
+        # range 0-1. This code will need to be modified if the grid
+        # entries are given a different interpretation (like
+        # log-odds).
+        flat_grid = img.reshape((img.size,)) * (100 / 255)
+        grid_msg.data = list(np.round(flat_grid).astype(int))
+        self.map_data_pub.publish(grid_msg.info)
+        self.map_pub.publish(grid_msg)
 
     def process(self, img):
 
@@ -269,10 +330,24 @@ class Detector:
             piece_centers.append(piece.get_location())
 
         #markers[res != 0] = 255
+        
+        # publish map
+        self.publish_map_msg(binary[::-1])
+        
+        '''
+        from pathlib import Path
+        mappath = Path(__file__) / '../map/map.png'
+        #print(mappath, mappath.resolve())
+        mappath = '/home/me134/me134ws/src/HW1/map/map.png'
+        if np.random.rand() < 0.01:
+            cv2.imwrite(mappath, blocks)
+        '''
 
         self.piece_centers = piece_centers
         self.pieces = pieces
 
+        #        print(self.screen_to_world(self.piece_centers[0][0],self.piece_centers[0][1]))
+        #print(self.xb, self.yb, 1/self.xb, 1/self.yb)
         return img, markers
 
 #

@@ -23,7 +23,7 @@
   <joint name="Thor/6" type="continuous">
     <parent link="link1"/>
     <child  link="link2"/>
-    <origin xyz="0 0 .085" rpy="0 0 0"/>
+    <origin xyz="0.00695 0 .085" rpy="0 0 0"/>
     <axis   xyz="1 0 0"/>
   </joint>
 
@@ -42,11 +42,18 @@
   <joint name="shifttotip" type="fixed">
     <parent link="link3"/>
     <child  link="tip"/>
-    <!--<origin xyz="0 .2522 0" rpy="0 0 0"/>-->
-    <origin xyz="-.0368 .303993 0" rpy="0 0 0"/>
+    <!--.2522 .303993-->
+    <origin xyz="0 .303993 0" rpy="0 0 0"/>
   </joint>
 
   <link name="tip"/>
+  
+  <link name="map"/>
+  <joint name="world_to_map" type="fixed">
+    <parent link="world"/>
+    <child link="map"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
 
 
   <!-- *************************************************** -->

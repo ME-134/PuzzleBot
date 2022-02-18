@@ -23,10 +23,15 @@ from piece_outline_detector import Detector
 
 motor_names = ['Thor/1', 'Thor/6', 'Thor/3']
 
+class IKinException(Exception):
+    pass
+class BoundsException(Exception):
+    pass
+
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2, -np.pi/12, -np.pi*0.9]).reshape((3, 1))
+    theta_min = np.array([-np.pi/2,         0, -np.pi*0.9]).reshape((3, 1))
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9]).reshape((3, 1))
 
     # I don't know
@@ -34,12 +39,15 @@ class Bounds:
     thetadot_min = -thetadot_max
 
     @staticmethod
-    def is_theta_valid(theta):
-        return np.all(theta <= Bounds.theta_max) and np.all(theta >= Bounds.theta_min)
+    def is_theta_valid(theta, axis=None):
+        if axis is None:
+            return np.all(theta <= Bounds.theta_max) and np.all(theta >= Bounds.theta_min)
+        return theta[axis] <= Bounds.theta_max[axis] and theta[axis] >= Bounds.theta_min[axis]
 
     @staticmethod
-    def is_thetadot_valid(thetadot):
+    def is_thetadot_valid(thetadot, axis=None):
         return np.all(thetadot <= Bounds.thetadot_max) and np.all(thetadot >= Bounds.thetadot_min)
+        return thetadot[axis] <= Bounds.thetadot_max[axis] and thetadot[axis] >= Bounds.thetadot_min[axis]
 
     @staticmethod
     def assert_theta_valid(theta):
@@ -47,7 +55,7 @@ class Bounds:
             errmsg = f"Given motor angle is out of bounds: \ntheta={theta}\nmin={Bounds.theta_min}\nmax={Bounds.theta_max}"
             #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
-            raise RuntimeError(errmsg)
+            raise BoundsException(errmsg)
 
     @staticmethod
     def assert_thetadot_valid(thetadot):
@@ -55,7 +63,7 @@ class Bounds:
             errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot}, min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
             #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
-            raise RuntimeError(errmsg)
+            raise BoundsException(errmsg)
 
 #
 #  Controller Class
@@ -111,16 +119,6 @@ class Controller:
         self.detector.init_aruco()
 
 
-    def fix_goal_theta(self, goal_theta, init_theta=None):
-        if init_theta is None:
-            init_theta = self.lasttheta
-
-        # Mod by 2pi, result should be in the range [-pi, pi]
-        goal_theta = np.remainder(goal_theta + np.pi, 2*np.pi) - np.pi
-        Bounds.assert_theta_valid(goal_theta)
-
-        return goal_theta
-
     def change_segment(self, segment):
         self.segment = segment
         self.t0 = self.last_t
@@ -133,7 +131,6 @@ class Controller:
 
         goal_pos = np.array([ 0.07, 0.04, 0.15]).reshape((3,1))
         goal_theta = self.ikin(goal_pos, self.lasttheta)
-        goal_theta = self.fix_goal_theta(goal_theta)
 
         Bounds.assert_theta_valid(self.lasttheta)
         Bounds.assert_thetadot_valid(self.lastthetadot)
@@ -155,36 +152,47 @@ class Controller:
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
         return (theta_error > 0.075)
-    
-    # Like ikin but only do 1 round
-    def ikin_fast(self, pgoal, theta_initialguess, return_J=False):
 
-        # Figure out where the current joint values put us:
-        # Compute the forward kinematics for this iteration.
-        (T,J) = self.kin.fkin(theta_initialguess)
+    def fix_goal_theta(self, goal_theta, goal_pos):
+            
+        def put_in_range(t):
+            return np.remainder(t + np.pi, 2*np.pi) - np.pi
 
-        # Extract the position and use only the 3x3 linear
-        # Jacobian (for 3 joints).  Generalize this for bigger
-        # mechanisms if/when we need.
-        p = p_from_T(T)
+        # Mod by 2pi, result should be in the range [-pi, pi]
+        goal_theta = put_in_range(goal_theta)
+        
+        # ikin 3DOF arm gives has 2 solutions
+        # Try to find the complementary solution, it might be valid
+        if not Bounds.is_theta_valid(goal_theta):
+            rospy.loginfo("Attempting to correct to valid position")
+            
+            # Check if first axis is out of bounds, and correct
+            # This would be 
+            if not Bounds.is_theta_valid(goal_theta, axis=0):
+                rospy.loginfo("Corrected 0th axis of goal_theta")
+                goal_theta *= np.array([    1,       -1, -1]).reshape((3, 1))
+                goal_theta += np.array([np.pi,  np.pi/2,  0]).reshape((3, 1))
+                goal_theta = put_in_range(goal_theta)
+                
+            # Check if second axis is out of bounds, and correct
+            if not Bounds.is_theta_valid(goal_theta, axis=1):
+                rospy.loginfo("Corrected 1st axis of goal_theta")
+                # Only works if arms are similar lengths
+                goal_theta *= np.array([ 1, -1, -1]).reshape((3, 1))
+                #goal_theta += np.array([0, 0, 0]).reshape((3, 1))
+                goal_theta = put_in_range(goal_theta)
+            
+            goal_theta = self.ikin(goal_pos, goal_theta)
+            
+        Bounds.assert_theta_valid(goal_theta)
 
-        # Compute the error.  Generalize to also compute
-        # orientation errors if/when we need.
-        e = pgoal - p
-
-        # Take a step in the appropriate direction.  Using an
-        # "inv()" though ultimately a "pinv()" would be safer.
-        theta = theta_initialguess + np.linalg.inv(J[0:3, 0:3]) @ e
-
-        if return_J:
-            return theta, J
-        return theta
+        return goal_theta
 
     def ikin(self, pgoal, theta_initialguess, return_J=False, max_iter=50, warning=True):
         # Start iterating from the initial guess
         theta = theta_initialguess
 
-        # Iterate at most 20 times (just to be safe)!
+        # Iterate at most 50 times (just to be safe)!
         for i in range(max_iter):
             # Figure out where the current joint values put us:
             # Compute the forward kinematics for this iteration.
@@ -205,21 +213,25 @@ class Controller:
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
+                break
+        
+        # If we never converge
+        else:
+            if warning:
+                # TODO: ask Hayama if we can change to error
+                # After 50 iterations, return the failure and zero instead!
+                rospy.logwarn("Unable to converge to [%f,%f,%f]",
+                               pgoal[0], pgoal[1], pgoal[2]);
                 if return_J:
-                    return theta, J
-                return theta
-
-        if warning:
-            # After 50 iterations, return the failure and zero instead!
-            rospy.logwarn("Unable to converge to [%f,%f,%f]",
-                          pgoal[0], pgoal[1], pgoal[2]);
-            if return_J:
-                return theta_initialguess, J
-            return theta_initialguess
+                    return theta_initialguess, J
+                return theta_initialguess
+        
+        theta = self.fix_goal_theta(theta, pgoal)
+        
+        
         if return_J:
             return theta, J
         return theta
-        
 
 
     # Update is called every 10ms!
@@ -234,20 +246,15 @@ class Controller:
             if self.is_resetting:
                 self.is_resetting = False
                 
-            #TEMP
-            if self.sim:
-                self.reset()
-            else:
-                # FIND NEW PUZZLE PIECE
-                x, y = self.detector.get_random_piece_center()
-                x, y = self.detector.screen_to_world(x, y)
-                pgoal = np.array([x, y, 0.02]).reshape((3, 1))
-                goal_theta = self.ikin(pgoal, self.lasttheta)
-                goal_theta = self.fix_goal_theta(goal_theta)
-                rospy.loginfo("chose location:" + str(pgoal))
-                rospy.loginfo("goal theta: " + str(goal_theta))
-                spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
-                self.change_segment(spline)
+            # FIND NEW PUZZLE PIECE
+            x, y = self.detector.get_random_piece_center()
+            x, y = self.detector.screen_to_world(x, y)
+            pgoal = np.array([x, y, 0.10]).reshape((3, 1))
+            goal_theta = self.ikin(pgoal, self.lasttheta)
+            rospy.loginfo("chose location:" + str(pgoal))
+            rospy.loginfo("goal theta: " + str(goal_theta))
+            spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
+            self.change_segment(spline)
 
         # Decide what to do based on the space.
         if (self.segment.space() == 'Joint'):

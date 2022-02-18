@@ -1,7 +1,7 @@
 primary_class = 'efficientnetB0'
-image_size = 224
+image_size = 124
 objective = 'sirna'
-batch_size = 16
+batch_size = 24
 train_epochs = 30
 parent_model = None
 name = 'efficientnetB0'

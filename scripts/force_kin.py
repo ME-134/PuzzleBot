@@ -47,7 +47,7 @@ from urdf_parser_py.urdf import Robot
 @njit
 def ep(pd, pa):
     return (pd - pa)
-@njit   
+@njit
 def eR(Rd, Ra):
     return 0.5*(np.cross(Ra[:,0], Rd[:,0]) +
                 np.cross(Ra[:,1], Rd[:,1]) +

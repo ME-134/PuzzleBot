@@ -2,13 +2,18 @@
   <!-- Define general parameters.  These can be overwritten by the
        roslaunch command line. -->
   <arg name="urdf"  default="threeDOF.urdf"/>
-  <arg name="model" default="$(find 134)/urdf/$(arg urdf)"/>
-  <arg name="cfg"   default="$(find 134)/rviz/viewurdf.rviz" />
+  <arg name="model" default="$(find HW1)/urdf/$(arg urdf)"/>
+  <arg name="cfg"   default="$(find HW1)/rviz/viewurdf.rviz" />
 
 
   <!-- Load the URDF file into the robot_description parameter. -->
   <param name="robot_description" textfile="$(arg model)"/>
 
+  <!-- Start a GUI with sliders to command the joints.  -->
+  <node pkg ="joint_state_publisher_gui"
+	type="joint_state_publisher_gui"
+	name="jsp">
+  </node>
 
   <!-- Start the ROS kinematic chain processing. -->
   <node pkg ="robot_state_publisher"

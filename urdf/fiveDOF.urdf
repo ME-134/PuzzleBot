@@ -23,7 +23,7 @@
   <joint name="Thor/6" type="continuous">
     <parent link="link1"/>
     <child  link="link2"/>
-    <origin xyz="0 0 .085" rpy="0 0 0"/>
+    <origin xyz="0.00695 0 .085" rpy="0 0 0"/>
     <axis   xyz="1 0 0"/>
   </joint>
 
@@ -32,7 +32,8 @@
   <joint name="Thor/3" type="continuous">
     <parent link="link2"/>
     <child  link="link3"/>
-    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
+    <!--<origin xyz="-.0368 .1651 0" rpy="0 0 0"/>-->
+    <origin xyz="-.0368 .2794 0" rpy="0 0 0"/>
     <axis   xyz="-1 0 0"/>
   </joint>
 
@@ -41,7 +42,7 @@
   <joint name="Thor/4" type="continuous">
     <parent link="link3"/>
     <child  link="link4"/>
-    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
+    <origin xyz="0 .303993 0" rpy="0 0 0"/>
     <axis   xyz="-1 0 0"/>
   </joint>
 
@@ -50,8 +51,8 @@
   <joint name="Thor/5" type="continuous">
     <parent link="link4"/>
     <child  link="link5"/>
-    <origin xyz="-.0368 .1651 0" rpy="0 0 0"/>
-    <axis   xyz="-1 0 0"/>
+    <origin xyz="-.05 0 -.05" rpy="0 0 0"/>
+    <axis   xyz="0 0 1"/>
   </joint>
 
   <link name="link5"/>
@@ -59,12 +60,18 @@
   <joint name="shifttotip" type="fixed">
     <parent link="link5"/>
     <child  link="tip"/>
-    <origin xyz="0 .2522 0" rpy="0 0 0"/>
+    <origin xyz="0 0 -.05" rpy="0 0 0"/>
   </joint>
 
   <link name="tip"/>
 
-
+  <link name="map"/>
+  <joint name="world_to_map" type="fixed">
+    <parent link="world"/>
+    <child link="map"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  
   <!-- *************************************************** -->
   <!-- ********************* Graphics ******************** -->
   <!-- *************************************************** -->
@@ -210,7 +217,56 @@
     </visual>
   </link>
 
-  <!-- *** Link 3 Sail - attached to link3 (pitch2 joint output) *** -->
+  <!-- *** Pitch 3 Motor - attached to link4 (yaw joint output) *** -->
+
+  <joint name="attach-pitch3motor" type="fixed">
+    <parent link="link4"/>
+    <child  link="pitch3motor"/>
+  </joint>
+
+  <link name="pitch3motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+  </link>
+
+  <!-- *** Link 4 Bar - attached to link4 (pitch joint output) *** -->
+
+  <joint name="attach-link4bar" type="fixed">
+    <parent link="link4"/>
+    <child  link="link4bar"/>
+  </joint>
+
+  <link name="link4bar">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+	<cylinder length=".1" radius="0.02"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <!-- *** Pitch 4 Motor - attached to link5 (yaw joint output) *** -->
+
+  <joint name="attach-pitch4motor" type="fixed">
+    <parent link="link5"/>
+    <child  link="pitch4motor"/>
+  </joint>
+
+  <link name="pitch4motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+	<cylinder length="0.05" radius="0.03"/>
+      </geometry>
+      <material name="yellow"/>
+    </visual>
+  </link>
 
   <!-- *** Tip Ball - attached to tip *** -->
 

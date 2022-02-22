@@ -136,7 +136,7 @@ class Detector:
         all_corners = np.array(all_corners).reshape((-1,2))
         
         if len(all_corners) != 8:
-            raise RuntimeError("Incorrect number of aruco marker corners:" + len(all_corners))
+            raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
         
         #Real Coordinates
         world1 = np.array([-.3543, -.0046])

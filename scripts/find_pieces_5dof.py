@@ -35,7 +35,7 @@ class Bounds:
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.pi*1.1]).reshape((5, 1))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))
+    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1)) * 1000
     thetadot_min = -thetadot_max
 
     @staticmethod
@@ -208,6 +208,7 @@ class Controller:
             # orientation errors if/when we need.
             pgoal = xgoal[:3]
             e_p = ep(pgoal, p).reshape((3, 1))
+            print(xgoal.shape, angs.shape, theta.shape)
             e_R = xgoal[3:5] - angs @ theta.reshape((5, 1))
             
             e = np.vstack((e_p, e_R))
@@ -231,7 +232,7 @@ class Controller:
                     return theta_initialguess, J
                 return theta_initialguess
         
-        theta = self.fix_goal_theta(theta, pgoal)
+        #theta = self.fix_goal_theta(theta, xgoal)
         
         
         if return_J:

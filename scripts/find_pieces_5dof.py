@@ -53,7 +53,6 @@ class Bounds:
     def assert_theta_valid(theta):
         if not Bounds.is_theta_valid(theta):
             errmsg = f"Given motor angle is out of bounds: \ntheta={theta}\nmin={Bounds.theta_min}\nmax={Bounds.theta_max}"
-            #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
             raise BoundsException(errmsg)
 
@@ -61,7 +60,6 @@ class Bounds:
     def assert_thetadot_valid(thetadot):
         if not Bounds.is_thetadot_valid(thetadot):
             errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot}, min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
-            #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
             raise BoundsException(errmsg)
 
@@ -129,16 +127,12 @@ class Controller:
 
         rospy.loginfo("Resetting robot")
 
-        goal_pos = np.array([ 0.07, 0.04, 0.15, 0, 0, 0]).reshape((6,1))
+        goal_pos = np.array([ 0.07, 0.04, 0.15, 0, 0]).reshape((5,1))
         goal_theta = self.ikin(goal_pos, self.lasttheta)
 
         Bounds.assert_theta_valid(self.lasttheta)
         Bounds.assert_thetadot_valid(self.lastthetadot)
 
-        # Why again???
-        # goal_theta = self.ikin(goal_pos, goal_theta)
-
-        #QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration)
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segment(spline)
         self.is_resetting = True
@@ -170,7 +164,7 @@ class Controller:
             # This would be 
             if not Bounds.is_theta_valid(goal_theta, axis=0):
                 rospy.loginfo("Corrected 0th axis of goal_theta")
-                goal_theta *= np.array([    1,       -1, -1, 1, 1]).reshape((5, 1))
+                goal_theta *= np.array([    1,       -1, -1, -1, 1]).reshape((5, 1))
                 goal_theta += np.array([np.pi,  np.pi/2,  0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
                 
@@ -178,7 +172,7 @@ class Controller:
             if not Bounds.is_theta_valid(goal_theta, axis=1):
                 rospy.loginfo("Corrected 1st axis of goal_theta")
                 # Only works if arms are similar lengths
-                goal_theta *= np.array([ 1, -1, -1, 1, 1]).reshape((5, 1))
+                goal_theta *= np.array([ 1, -1, -1, -1, 1]).reshape((5, 1))
                 #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
             
@@ -197,6 +191,13 @@ class Controller:
             # Figure out where the current joint values put us:
             # Compute the forward kinematics for this iteration.
             (T,J) = self.kin.fkin(theta)
+            # 3rd row is 'z' angle in world frame
+            # 4th row keeps end effector parallel
+            angs = np.array([
+                [1, 0, 0, 0, 1],
+                [0, 1, -1, -1, 0]
+            ])
+            J = np.append(J[:3], angs, axis=0)
 
             # Extract the position and use only the 3x3 linear
             # Jacobian (for 3 joints).  Generalize this for bigger
@@ -206,9 +207,8 @@ class Controller:
             # Compute the error.  Generalize to also compute
             # orientation errors if/when we need.
             pgoal = xgoal[:3]
-            Rgoal = R_from_URDF_rpy(xgoal[3:, 0])
             e_p = ep(pgoal, p).reshape((3, 1))
-            e_R = eR(Rgoal, R).reshape((3, 1))
+            e_R = xgoal[3:5] - angs @ theta.reshape((5, 1))
             
             e = np.vstack((e_p, e_R))
 
@@ -254,7 +254,7 @@ class Controller:
             # FIND NEW PUZZLE PIECE
             x, y = self.detector.get_random_piece_center()
             x, y = self.detector.screen_to_world(x, y)
-            pgoal = np.array([x, y, 0.10, 0, 0, 0]).reshape((6, 1))
+            pgoal = np.array([x, y, 0.10, 0, 0]).reshape((5, 1))
             goal_theta = self.ikin(pgoal, self.lasttheta)
             rospy.loginfo("chose location:" + str(pgoal))
             rospy.loginfo("goal theta: " + str(goal_theta))
@@ -267,6 +267,9 @@ class Controller:
             (theta, thetadot) = self.segment.evaluate(t - self.t0)
         else:
             # Grab the spline output as task values.
+            # Dim 0-2 are cartesian positions
+            # Dim 3 controls tip angle about z axis when end is parallel with table
+            # Dim 4 keeps end parallel with table when 0, can be used for flipping
             (p, v)    = self.segment.evaluate(t - self.t0)
             
             rospy.loginfo("Screen coordinates of arm: ", 

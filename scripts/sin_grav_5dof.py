@@ -98,9 +98,11 @@ class Controller:
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             
 
-        # Set the tip targets (in 3x1 column vectors).
-        xA = np.array([ 0.07, 0.0, 0.15, 0, 0, 0]).reshape((6,1))    # Bottom.
-        xB = np.array([-0.07, 0.0, 0.15, 0, 0, 0]).reshape((6,1))    # Top.
+        # Set the tip targets (in 5x1 column vectors).
+        # Dim 3 controls tip angle about z axis when end is parallel with table
+        # Dim 4 keeps end parallel with table when 0, can be used for flipping
+        xA = np.array([ 0.07, 0.0, 0.15, 0, 0]).reshape((5,1))    # Bottom.
+        xB = np.array([-0.07, 0.0, 0.15, 0, 0]).reshape((5,1))    # Top.
         
         thetaA = self.ikin(xA, self.lasttheta)
         thetaB = self.ikin(xB, thetaA)
@@ -225,7 +227,13 @@ class Controller:
             # Figure out where the current joint values put us:
             # Compute the forward kinematics for this iteration.
             (T,J) = self.kin.fkin(theta)
-            #J = J[[0,1,2,3,5]]
+            # 3rd row is 'z' angle in world frame
+            # 4th row keeps end effector parallel
+            angs = np.array([
+                [1, 0, 0, 0, 1],
+                [0, 1, -1, -1, 0]
+            ])
+            J = np.append(J[:3], angs, axis=0)
 
             # Extract the position and use only the 3x3 linear
             # Jacobian (for 3 joints).  Generalize this for bigger
@@ -236,9 +244,10 @@ class Controller:
             # Compute the error.  Generalize to also compute
             # orientation errors if/when we need.
             pgoal = xgoal[:3]
-            Rgoal = R_from_URDF_rpy(xgoal[3:, 0])
+            #Rgoal = R_from_URDF_rpy(xgoal[3:, 0])
             e_p = ep(pgoal, p).reshape((3, 1))
-            e_R = eR(Rgoal, R).reshape((3, 1))
+            #e_R = eR(Rgoal, R).reshape((3, 1))
+            e_R = xgoal[3:5] - angs @ theta.reshape((5, 1))
             
             e = np.vstack((e_p, e_R))
 

@@ -43,16 +43,16 @@
     <parent link="link3"/>
     <child  link="link4"/>
     <origin xyz="0 .303993 0" rpy="0 0 0"/>
-    <axis   xyz="-1 0 0"/>
+    <axis   xyz="1 0 0"/>
   </joint>
 
   <link name="link4"/>
 
-  <joint name="Thor/5" type="continuous">
+  <joint name="Thor/2" type="continuous">
     <parent link="link4"/>
     <child  link="link5"/>
-    <origin xyz="-.05 0 -.05" rpy="0 0 0"/>
-    <axis   xyz="0 0 1"/>
+    <origin xyz=".05 0 -.05" rpy="0 0 0"/>
+    <axis   xyz="0 0 -1"/>
   </joint>
 
   <link name="link5"/>

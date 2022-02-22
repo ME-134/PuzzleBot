@@ -69,8 +69,8 @@ class Generator:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.1, .7],
-                                  [0, -0.1],])
+                                  [-.1, 3.8],
+                                  [0, -2.6],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
@@ -83,8 +83,8 @@ class Generator:
 
         # FIXME
         msg = rospy.wait_for_message('/hebi/joint_states', JointState)
-        self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((3,1))
-        self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((3,1))
+        self.lasttheta_state = self.lasttheta = np.array(msg.position).reshape((5,1))
+        self.lastthetadot_state = self.lastthetadot = np.array(msg.velocity).reshape((5,1))
 
         # Subscriber which listens to the motors' positions and velocities
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
@@ -106,9 +106,9 @@ class Generator:
         # match the joint names in the URDF.  And their number must be
         # the number of position/velocity elements.
         cmdmsg = JointState()
-        cmdmsg.name         = ['Thor/1', 'Thor/6', 'Thor/3']
-        cmdmsg.position     = [np.nan, np.nan, np.nan]#theta
-        cmdmsg.velocity     = [np.nan, np.nan, np.nan]
+        cmdmsg.name         = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
+        cmdmsg.position     = [np.nan, np.nan, np.nan, np.nan, np.nan]#theta
+        cmdmsg.velocity     = [np.nan, np.nan, np.nan, np.nan, np.nan]
         cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
         cmdmsg.header.stamp = rospy.Time.now()
         self.pub.publish(cmdmsg)

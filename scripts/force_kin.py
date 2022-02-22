@@ -247,7 +247,7 @@ class Kinematics:
             return
 
         # Initialize the T matrix to walk up the chain
-        T = np.eye(len(theta))
+        T = np.eye(4)
 
         # Initialize the gravity torques.
         grav = np.zeros(self.dofs)

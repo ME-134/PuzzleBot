@@ -19,7 +19,7 @@ from urdf_parser_py.urdf import Robot
 from force_kin import *
 from splines import *
 
-motor_names = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/5']
+motor_names = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
 
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
@@ -73,8 +73,8 @@ class Controller:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.1, .7],
-                                  [0, -0.1],])
+                                  [-.1, 3.8],
+                                  [0, -2.6],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
 
@@ -230,8 +230,8 @@ class Controller:
             # 3rd row is 'z' angle in world frame
             # 4th row keeps end effector parallel
             angs = np.array([
-                [1, 0, 0, 0, 1],
-                [0, 1, -1, -1, 0]
+                [1, 0, 0, 0, -1],
+                [0, 1, -1, 1, 0]
             ])
             J = np.append(J[:3], angs, axis=0)
 
@@ -350,8 +350,8 @@ class Controller:
         self.safe_publish_cmd(theta, thetadot, effort)
         
 
-        if not self.sim and self.is_contacting() and self.is_oscillating():
-            self.reset(duration=4)
+        #if not self.sim and self.is_contacting() and self.is_oscillating():
+        #    self.reset(duration=4)
     
     def safe_publish_cmd(self, position, velocity, effort):
         ''' 

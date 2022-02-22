@@ -1,7 +1,8 @@
 <launch>
   <!-- Define general parameters.  These can be overwritten by the
        roslaunch command line. -->
-  <arg name="model" default="$(find HW1)/urdf/threeDOF.urdf"/>
+  <arg name="urdf"  default="threeDOF.urdf"/>
+  <arg name="model" default="$(find HW1)/urdf/$(arg urdf)"/>
   <arg name="cfg"   default="$(find HW1)/rviz/viewurdf.rviz"/>
   <arg name="sim"   default="False"/>
 
@@ -17,7 +18,7 @@
 	required="true">
     <rosparam>
       family: "Thor"
-      names: ["1", "6", "3"]
+      names: ["1", "6", "3", "4", "2"]
     </rosparam>
   </node>
   

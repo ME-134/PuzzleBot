@@ -135,6 +135,8 @@ class Detector:
         all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
         
+        if len(all_corners) != 8:
+            raise RuntimeError("Incorrect number of aruco marker corners:" + len(all_corners))
         
         #Real Coordinates
         world1 = np.array([-.3543, -.0046])

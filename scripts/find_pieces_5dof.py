@@ -31,7 +31,7 @@ class BoundsException(Exception):
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2, -np.pi/12, -np.pi*0.9, -np.pi, -np.pi*1.1]).reshape((5, 1))
+    theta_min = np.array([-np.pi/2,      -0.1, -np.pi*0.9, -np.pi, -np.pi*1.1]).reshape((5, 1))
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.pi*1.1]).reshape((5, 1))
 
     # I don't know
@@ -81,8 +81,8 @@ class Controller:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                    [-.1, .7],
-                                    [0, -0.1],])
+                                  [-.1, 4.1],
+                                  [-0.5, -2.5],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
@@ -145,7 +145,7 @@ class Controller:
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
-        return (theta_error > 0.075)
+        return (theta_error > 0.11)
 
     def fix_goal_theta(self, goal_theta, goal_pos):
             
@@ -286,8 +286,8 @@ class Controller:
         effort = self.kin.grav(self.lasttheta_state)
         self.safe_publish_cmd(theta, thetadot, effort)
 
-        #if not self.sim and self.is_contacting():
-        #    self.reset(duration=4)
+        if not self.sim and self.is_contacting():
+            self.reset(duration=4)
     
     def safe_publish_cmd(self, position, velocity, effort):
         ''' 

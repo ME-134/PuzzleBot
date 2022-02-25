@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#   HW#4 P5 straightline.py
+#   solve_puzzle.py
 #
 #   Visualize the 3DOF, moving up in a task-space move, down in a
 #   joint-space move.
@@ -19,7 +19,14 @@ from urdf_parser_py.urdf import Robot
 from force_kin import *
 from splines import *
 
+from piece_outline_detector import Detector
+
 motor_names = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
+
+class IKinException(Exception):
+    pass
+class BoundsException(Exception):
+    pass
 
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
@@ -28,33 +35,34 @@ class Bounds:
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.pi*1.1]).reshape((5, 1))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))
+    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1)) * 1000
     thetadot_min = -thetadot_max
 
     @staticmethod
-    def is_theta_valid(theta):
-        return np.all(theta <= Bounds.theta_max) and np.all(theta >= Bounds.theta_min)
+    def is_theta_valid(theta, axis=None):
+        if axis is None:
+            return np.all(theta <= Bounds.theta_max) and np.all(theta >= Bounds.theta_min)
+        return theta[axis] <= Bounds.theta_max[axis] and theta[axis] >= Bounds.theta_min[axis]
 
     @staticmethod
-    def is_thetadot_valid(thetadot):
+    def is_thetadot_valid(thetadot, axis=None):
         return np.all(thetadot <= Bounds.thetadot_max) and np.all(thetadot >= Bounds.thetadot_min)
+        return thetadot[axis] <= Bounds.thetadot_max[axis] and thetadot[axis] >= Bounds.thetadot_min[axis]
 
     @staticmethod
     def assert_theta_valid(theta):
         if not Bounds.is_theta_valid(theta):
             errmsg = f"Given motor angle is out of bounds: \ntheta={theta}\nmin={Bounds.theta_min}\nmax={Bounds.theta_max}"
-            #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
-            raise RuntimeError(errmsg)
+            raise BoundsException(errmsg)
 
     @staticmethod
     def assert_thetadot_valid(thetadot):
         if not Bounds.is_thetadot_valid(thetadot):
             errmsg = f"Given motor angular velocity is out of bounds: thetadot={thetadot}, min={Bounds.thetadot_min}, max={Bounds.thetadot_max}"
-            #rospy.logerror(errmsg)
             rospy.signal_shutdown(errmsg)
-            raise RuntimeError(errmsg)
-            
+            raise BoundsException(errmsg)
+
 #
 #  Controller Class
 #
@@ -77,13 +85,9 @@ class Controller:
                                   [-0.5, -2.5],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
-
         # Initialize the current segment index and starting time t0.
-        self.index = 0
         self.t0    = 0.0
-        self.old_t0 = 0.0
-        
-        self.last_t = None
+        self.last_t = 0.0
         self.sim = sim
 
         # Also initialize the storage of the last joint position
@@ -97,116 +101,44 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/6, np.pi/4, 0, 0]).reshape((5, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             
-
-        # Set the tip targets (in 5x1 column vectors).
-        # Dim 3 controls tip angle about z axis when end is parallel with table
-        # Dim 4 keeps end parallel with table when 0, can be used for flipping
-        xA = np.array([ 0.07, 0.0, 0.15, 0, 0]).reshape((5,1))    # Bottom.
-        xB = np.array([-0.07, 0.0, 0.15, 0, 0]).reshape((5,1))    # Top.
-        
-        thetaA = self.ikin(xA, self.lasttheta)
-        thetaB = self.ikin(xB, thetaA)
-
         # Create the splines.
-        self.sin_traj = SinTraj(xA, xB, np.inf, .5, space="Cart")
-        #self.sin_traj = SinTraj(thetaA, thetaB, np.inf, .5, space="Joint")
-        self.segments = [self.sin_traj]
-        self.segment_q = list()
-
-        # Flips between 1 and -1 every time the robot does a flip.
-        # Not critical for functionality, but ensures that the robot doesn't
-        # keep spinning the same way on the vertical axis.
-        self.orientation = 1
+        self.segment = None
         
         self.is_resetting = False
 
         # Add spline which goes to the correct starting position
         self.reset(duration = 4)
 
-        # Subscribe to "/switch" which causes the robot to do a flip
-        self.switch_sub = rospy.Subscriber("/switch", Bool, self.switch_callback)
-
         # Subscriber which listens to the motors' positions and velocities
+        # Used for touch detection
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
-        
-        self.theta_history = []
-        self.thetadot_history = []
+
+        self.detector = Detector()
+        self.detector.init_aruco()
+
+
+    def change_segment(self, segment):
+        self.segment = segment
+        self.t0 = self.last_t
 
     def reset(self, duration = 10):
+        # Assumes that the initial theta is valid. 
+        # Will not attempt to reset a theta which is out of bounds.
+
         rospy.loginfo("Resetting robot")
-        # Compute desired theta, starting the Newton Raphson at the last theta.
-        goal_pos, _ = self.segments[0].evaluate(0)
-        goal_theta = np.fmod(self.ikin(goal_pos, self.lasttheta), 2*np.pi)
 
-        #goal_theta, _ = self.segments[0].evaluate(0)
+        goal_pos = np.array([ 0.07, 0.04, 0.15, 0, 0]).reshape((5,1))
+        goal_theta = self.ikin(goal_pos, self.lasttheta)
 
-        # Choose fastest path to the start
-        for i in range(goal_theta.shape[0]):
-            candidate = np.remainder(goal_theta[i,0], 2*np.pi)
-            if abs(candidate - self.lasttheta[i,0]) < abs(goal_theta[i,0] - self.lasttheta[i,0]):
-                goal_theta[i,0] = candidate
+        Bounds.assert_theta_valid(self.lasttheta)
+        Bounds.assert_thetadot_valid(self.lastthetadot)
 
-        # Don't go through the table
-        if -np.pi < goal_theta[1] < 0:
-            goal_theta[1] = 0*np.pi - goal_theta[1]
-            goal_theta[2] = 0*np.pi - goal_theta[2]
-        if 2*np.pi > goal_theta[1] > np.pi:
-            goal_theta[1] = 2*np.pi - goal_theta[1]
-            goal_theta[2] = 0*np.pi - goal_theta[2]
-        
-
-        # Don't go thru itself
-        if goal_theta[2,0] < -np.pi < self.lasttheta[2,0]:
-            goal_theta[2,0] += 2*np.pi
-        if goal_theta[2,0] > -np.pi > self.lasttheta[2,0]:
-            goal_theta[2,0] -= 2*np.pi
-        if goal_theta[2,0] < np.pi < self.lasttheta[2,0]:
-            goal_theta[2,0] += 2*np.pi
-        if goal_theta[2,0] > np.pi > self.lasttheta[2,0]:
-            goal_theta[2,0] -= 2*np.pi
-            
-        goal_theta = self.ikin(goal_pos, goal_theta)
-
-        #self.segment_q.append(QuinticSpline(self.lasttheta, self.lastthetadot, 0, goal_theta, 0, 0, duration))
-        self.segment_q.append(CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True))
+        spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
+        self.change_segment(spline)
         self.is_resetting = True
-
-    def flip(self, duration = 4):
-        # Convert all angles to be between 0 and 2pi
-        rounds = np.floor_divide(self.lasttheta, np.pi*2)
-
-        # Hard-code solution to flipped arm
-        thetaInit = np.remainder(self.lasttheta, np.pi*2)
-        thetaGoal = (thetaInit.T * np.array([1, -1, -1])
-                                 + np.array([self.orientation * np.pi, np.pi, 0])).reshape((5, 1))
-
-        # Ensures that the robot arm segments don't collide with each other.
-        if thetaInit[2, 0] > np.pi:
-            thetaGoal[2, 0] += 4*np.pi
-
-        thetaDotInit = self.lastthetadot
-        thetaDotGoal = (thetaDotInit.T * np.array([1, -1, -1, 1, 1])).reshape((5, 1))
-
-        # Flips between -1 and 1
-        self.orientation *= -1
-        
-        (T,J)     = self.kin.fkin(thetaInit)
-        initPos = p_from_T(T)
-
-        # Convert angles back to original space
-        thetaGoal += rounds * 2*np.pi
-        thetaGoal = self.ikin(initPos, thetaGoal)
-        thetaInit += rounds * 2*np.pi
-        self.segment_q.append(QuinticSpline(thetaInit, thetaDotInit, 0, thetaGoal, thetaDotGoal, 0, duration, rm=True))
-
-    def switch_callback(self, msg):
-        # msg is unused
-        if self.is_oscillating():
-            self.flip(duration=8)
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
-        #rospy.loginfo("Recieved state update message " + str(msg))
         self.lasttheta_state = np.array(msg.position).reshape((5,1))
         self.lastthetadot_state = np.array(msg.velocity).reshape((5, 1))
 
@@ -214,15 +146,47 @@ class Controller:
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
         thetadot_error = np.sum(np.abs(self.lastthetadot_state.reshape(-1) - self.lastthetadot.reshape(-1)))
         return (theta_error > 0.11)
+
+    def fix_goal_theta(self, goal_theta, goal_pos):
+            
+        def put_in_range(t):
+            return np.remainder(t + np.pi, 2*np.pi) - np.pi
+
+        # Mod by 2pi, result should be in the range [-pi, pi]
+        goal_theta = put_in_range(goal_theta)
         
-    def is_oscillating(self):
-        return isinstance(self.segments[self.index], SinTraj)
+        # ikin 3DOF arm gives has 2 solutions
+        # Try to find the complementary solution, it might be valid
+        if not Bounds.is_theta_valid(goal_theta):
+            rospy.loginfo("Attempting to correct to valid position")
+            
+            # Check if first axis is out of bounds, and correct
+            # This would be 
+            if not Bounds.is_theta_valid(goal_theta, axis=0):
+                rospy.loginfo("Corrected 0th axis of goal_theta")
+                goal_theta *= np.array([    1,       -1, -1, -1, 1]).reshape((5, 1))
+                goal_theta += np.array([np.pi,  np.pi/2,  0, 0, 0]).reshape((5, 1))
+                goal_theta = put_in_range(goal_theta)
+                
+            # Check if second axis is out of bounds, and correct
+            if not Bounds.is_theta_valid(goal_theta, axis=1):
+                rospy.loginfo("Corrected 1st axis of goal_theta")
+                # Only works if arms are similar lengths
+                goal_theta *= np.array([ 1, -1, -1, -1, 1]).reshape((5, 1))
+                #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
+                goal_theta = put_in_range(goal_theta)
+            
+            goal_theta = self.ikin(goal_pos, goal_theta)
+            
+        Bounds.assert_theta_valid(goal_theta)
+
+        return goal_theta
 
     def ikin(self, xgoal, theta_initialguess, return_J=False, max_iter=50, warning=True):
         # Start iterating from the initial guess
         theta = theta_initialguess
 
-        # Iterate at most 20 times (just to be safe)!
+        # Iterate at most 50 times (just to be safe)!
         for i in range(max_iter):
             # Figure out where the current joint values put us:
             # Compute the forward kinematics for this iteration.
@@ -231,7 +195,7 @@ class Controller:
             # 4th row keeps end effector parallel
             angs = np.array([
                 [1, 0, 0, 0, -1],
-                [0, 1, -1, -1, 0]
+                [0, 1, -1, 1, 0]
             ])
             J = np.append(J[:3], angs, axis=0)
 
@@ -239,34 +203,38 @@ class Controller:
             # Jacobian (for 3 joints).  Generalize this for bigger
             # mechanisms if/when we need.
             p = p_from_T(T)
-            R = R_from_T(T)
 
             # Compute the error.  Generalize to also compute
             # orientation errors if/when we need.
             pgoal = xgoal[:3]
-            #Rgoal = R_from_URDF_rpy(xgoal[3:, 0])
             e_p = ep(pgoal, p).reshape((3, 1))
-            #e_R = eR(Rgoal, R).reshape((3, 1))
+            print(xgoal.shape, angs.shape, theta.shape)
             e_R = xgoal[3:5] - angs @ theta.reshape((5, 1))
             
             e = np.vstack((e_p, e_R))
 
-            # Take a step in the appropriate direction.
-            theta = theta + np.linalg.pinv(J) @ e
+            # Take a step in the appropriate direction.  Using an
+            # "inv()" though ultimately a "pinv()" would be safer.
+            theta = theta + np.linalg.inv(J) @ e
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
+                break
+        
+        # If we never converge
+        else:
+            if warning:
+                # TODO: ask Hayama if we can change to error
+                # After 50 iterations, return the failure and zero instead!
+                rospy.logwarn("Unable to converge to [%f,%f,%f]",
+                               pgoal[0], pgoal[1], pgoal[2]);
                 if return_J:
-                    return theta, J
-                return theta
-
-        if warning:
-            # After 50 iterations, return the failure and zero instead!
-            rospy.logwarn("Unable to converge to [%f,%f,%f]",
-                          pgoal[0], pgoal[1], pgoal[2]);
-            if return_J:
-                return theta_initialguess, J
-            return theta_initialguess
+                    return theta_initialguess, J
+                return theta_initialguess
+        
+        #theta = self.fix_goal_theta(theta, xgoal)
+        
+        
         if return_J:
             return theta, J
         return theta
@@ -274,83 +242,51 @@ class Controller:
 
     # Update is called every 10ms!
     def update(self, t):
+
         dt = t - self.last_t
         self.last_t = t
-        if self.segment_q:
-            self.index = len(self.segments)
-            self.segments += self.segment_q
-            self.segment_q = list()
-            self.old_t0 = self.t0
-            self.t0 = t
 
-        # If the current segment is done, shift to the next.
-        dur = self.segments[self.index].duration()
+        # If the current segment is done, replace the semgent with a new one
+        dur = self.segment.duration()
         if (t - self.t0 >= dur):
-            self.t0    = (self.t0    + dur)
-            self.index = (self.index + 1) % len(self.segments)
-            if self.index < len(self.segments) and self.is_oscillating():
-                self.t0 = self.old_t0
             if self.is_resetting:
                 self.is_resetting = False
-                self.t0 = t
-            self.segments = list(filter(lambda x: not x.rm, self.segments))
-
-        # Check whether we are done with all segments.
-        if (self.index >= len(self.segments)):
-            rospy.signal_shutdown("Done with motion")
-            return
+                
+            # FIND NEW PUZZLE PIECE
+            x, y = self.detector.get_random_piece_center()
+            x, y = self.detector.screen_to_world(x, y)
+            pgoal = np.array([x, y, 0.10, 0, 0]).reshape((5, 1))
+            goal_theta = self.ikin(pgoal, self.lasttheta)
+            rospy.loginfo("chose location:" + str(pgoal))
+            rospy.loginfo("goal theta: " + str(goal_theta))
+            spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
+            self.change_segment(spline)
 
         # Decide what to do based on the space.
-        if (self.segments[self.index].space() == 'Joint'):
+        if (self.segment.space() == 'Joint'):
             # Grab the spline output as joint values.
-            (theta, thetadot) = self.segments[self.index].evaluate(t - self.t0)
+            (theta, thetadot) = self.segment.evaluate(t - self.t0)
         else:
             # Grab the spline output as task values.
-            (x, v)    = self.segments[self.index].evaluate(t - self.t0)
-            #Robj = R_from_rpy(x[3:6])
+            # Dim 0-2 are cartesian positions
+            # Dim 3 controls tip angle about z axis when end is parallel with table
+            # Dim 4 keeps end parallel with table when 0, can be used for flipping
+            (p, v)    = self.segment.evaluate(t - self.t0)
             
-            # Get the Jacobian and T matrix
-            '''
-            T, J = self.kin.fkin(self.lasttheta[:, 0])
+            rospy.loginfo("Screen coordinates of arm: ", 
+                          self.detector.world_to_screen(p[0, 0], p[1, 0]))
             
-            # Get the weighted Jacobian pseudoinverse
-            #gamma = .05
-            #Jw_inv = J.T @ np.linalg.pinv(J @ J.T + gamma**2 * np.eye(len(J[:, 0])))
-            Jw_inv = np.linalg.pinv(J)
-                
-            # Get the real tip position x(q)
-            xtip = p_from_T(T)
-            Rtip = R_from_T(T)
-            
-            # Error term
-            e_p = ep(p[0:3], xtip)
-            #print(e_p)
-            #e_r = eR(Robj, Rtip)
-            #e = np.append(e_p, e_r)
-
-            # Setting secondary task to centering
-            c_repulse = 5
-            
-            # Getting angle velocities
-            lam = 1/dt
-            #lam = 0
-            old = self.lasttheta
-            
-            '''
-            theta, J = self.ikin(x, self.lasttheta, return_J=True, max_iter=1, warning=False)
-            thetadot  = np.linalg.pinv(J) @ v
-            
-            #thetadot = (Jw_inv[0:3, 0:3] @ (v[0:3] + lam*e_p)).reshape(3, 1) #+ (np.eye(3) - Jw_inv @ J) @ theta_second
-            #theta = self.lasttheta + dt*thetadot
+            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
+            thetadot  = np.linalg.pinv(J[:, :]) @ v
 
         # Save the position (to be used as an estimate next time).
         self.lasttheta = theta
         self.lastthetadot = thetadot
+
         effort = self.kin.grav(self.lasttheta_state)
         self.safe_publish_cmd(theta, thetadot, effort)
-        
 
-        if not self.sim and self.is_contacting() and self.is_oscillating():
+        if not self.sim and self.is_contacting():
             self.reset(duration=4)
     
     def safe_publish_cmd(self, position, velocity, effort):
@@ -383,6 +319,7 @@ class Controller:
         if not self.sim:
             self.pub.publish(cmdmsg)
         self.rviz_pub.publish(cmdmsg)
+
 #
 #
 #  Main Code
@@ -390,7 +327,7 @@ class Controller:
 if __name__ == "__main__":
     
     # Prepare/initialize this node.
-    rospy.init_node('sin_grav')
+    rospy.init_node('straightline')
 
     # Instantiate the controller object, encapsulating all
     # the computation and local variables.
@@ -412,7 +349,6 @@ if __name__ == "__main__":
 
     # Run the servo loop until shutdown (killed or ctrl-C'ed).
     starttime = rospy.Time.now()
-    controller.last_t = starttime.to_sec()
     while not rospy.is_shutdown():
 
         # Current time (since start)

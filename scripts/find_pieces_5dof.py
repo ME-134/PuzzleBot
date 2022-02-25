@@ -195,7 +195,7 @@ class Controller:
             # 4th row keeps end effector parallel
             angs = np.array([
                 [1, 0, 0, 0, -1],
-                [0, 1, -1, 1, 0]
+                [0, 1, -1, -1, 0]
             ])
             J = np.append(J[:3], angs, axis=0)
 

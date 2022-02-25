@@ -80,7 +80,7 @@ class Detector:
     def __init__(self):
         # Grab an instance of the camera data.
         rospy.loginfo("Waiting for camera info...")
-        msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo);
+        msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo)
         self.camD = np.array(msg.D).reshape(5)
         self.camK = np.array(msg.K).reshape((3,3))
         
@@ -88,12 +88,11 @@ class Detector:
         # of one means only the most recent message is stored for the
         # next subscriber callback.
         #rospy.init_node('detector')
-        self.imgsub = rospy.Subscriber("/usb_cam/image_raw", Image, self.getPiecesesAndPublish,
-                                        queue_size=1)
+        self.imgsub = rospy.Subscriber("/usb_cam/image_raw", Image, self.getPiecesesAndPublish, queue_size=1)
         
-        self.map_pub = rospy.Publisher('map', OccupancyGrid)
+        self.map_pub = rospy.Publisher('map', OccupancyGrid, queue_size=1)
         self.map_data_pub = rospy.Publisher('map_metadata', 
-                                             MapMetaData)
+                                             MapMetaData, queue_size=1)
         self.map_pub_counter = 0
         self.map_pub_every = 50
 

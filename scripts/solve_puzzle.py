@@ -13,14 +13,14 @@ import matplotlib.pyplot as plt
 import sys, time
 
 from sensor_msgs.msg     import JointState
-from std_msgs.msg        import Bool, Duration
+from std_msgs.msg        import Bool, Duration, UInt16, Float32
 from urdf_parser_py.urdf import Robot
 
 from force_kin import *
 from splines import *
 
 from piece_outline_detector import Detector
-
+import enum
 motor_names = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
 
 class IKinException(Exception):
@@ -72,8 +72,9 @@ class Controller:
         # Create a publisher to send the joint commands.  Add some time
         # for the subscriber to connect.  This isn't necessary, but means
         # we don't start sending messages until someone is listening.
-        self.pub = rospy.Publisher("/hebi/joint_commands", JointState, queue_size=10)
-        self.rviz_pub = rospy.Publisher("/joint_states", JointState, queue_size=10)
+        self.pub = rospy.Publisher("/hebi/joint_commands", JointState, queue_size=1)
+        self.rviz_pub = rospy.Publisher("/joint_states", JointState, queue_size=1)
+        self.pump_pub = rospy.Publisher("/toggle_pump", UInt16, queue_size=1)
         rospy.sleep(0.25)
 
         # Grab the robot's URDF from the parameter server.
@@ -86,6 +87,7 @@ class Controller:
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
+        self.index = 0
         self.t0    = 0.0
         self.last_t = 0.0
         self.sim = sim
@@ -102,23 +104,27 @@ class Controller:
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
             
         # Create the splines.
-        self.segment = None
-        
+        self.segments = []
         self.is_resetting = False
+
+        # Point where the robot resets to
+        self.reset_pos = np.array([ 0.1, -0.07, 0.15, 0, 0]).reshape((5,1))
 
         # Add spline which goes to the correct starting position
         self.reset(duration = 4)
 
         # Subscriber which listens to the motors' positions and velocities
-        # Used for touch detection
+        # Used for touch detection and gravity compensation
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
+        self.state_sub = rospy.Subscriber('/current_draw', Float32, self.current_callback)
+        self.current = 0.0
 
         self.detector = Detector()
         self.detector.init_aruco()
 
 
-    def change_segment(self, segment):
-        self.segment = segment
+    def change_segments(self, segments):
+        self.segments = segments
         self.t0 = self.last_t
 
     def reset(self, duration = 10):
@@ -127,20 +133,30 @@ class Controller:
 
         rospy.loginfo("Resetting robot")
 
-        goal_pos = np.array([ 0.07, 0.04, 0.15, 0, 0]).reshape((5,1))
-        goal_theta = self.ikin(goal_pos, self.lasttheta)
+        goal_theta = self.ikin(self.reset_pos, self.lasttheta)
 
         Bounds.assert_theta_valid(self.lasttheta)
         Bounds.assert_thetadot_valid(self.lastthetadot)
 
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
-        self.change_segment(spline)
+        self.change_segments([spline])
         self.is_resetting = True
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
         self.lasttheta_state = np.array(msg.position).reshape((5,1))
         self.lastthetadot_state = np.array(msg.velocity).reshape((5, 1))
+        
+    def current_callback(self, msg):
+        # Storing current the pump is drawing
+        self.current = msg.data
+        
+    def set_pump(self, value):
+        # Turns on/off pump
+        msg = UInt16()
+        msg.data = 1 if value else 0
+        self.pump_pub.pub(msg)
+        return True
 
     def is_contacting(self):
         theta_error = np.sum(np.abs(self.lasttheta_state.reshape(-1) - self.lasttheta.reshape(-1)))
@@ -195,27 +211,22 @@ class Controller:
             # 4th row keeps end effector parallel
             angs = np.array([
                 [1, 0, 0, 0, -1],
-                [0, 1, -1, 1, 0]
+                [0, 1, -1, -1, 0]
             ])
             J = np.append(J[:3], angs, axis=0)
 
-            # Extract the position and use only the 3x3 linear
-            # Jacobian (for 3 joints).  Generalize this for bigger
-            # mechanisms if/when we need.
+            # Extract the position 
             p = p_from_T(T)
 
-            # Compute the error.  Generalize to also compute
-            # orientation errors if/when we need.
+            # Compute the error
             pgoal = xgoal[:3]
             e_p = ep(pgoal, p).reshape((3, 1))
-            print(xgoal.shape, angs.shape, theta.shape)
             e_R = xgoal[3:5] - angs @ theta.reshape((5, 1))
             
             e = np.vstack((e_p, e_R))
 
-            # Take a step in the appropriate direction.  Using an
-            # "inv()" though ultimately a "pinv()" would be safer.
-            theta = theta + np.linalg.inv(J) @ e
+            # Take a step in the appropriate direction.
+            theta = theta + np.linalg.pinv(J) @ e
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
@@ -227,7 +238,7 @@ class Controller:
                 # TODO: ask Hayama if we can change to error
                 # After 50 iterations, return the failure and zero instead!
                 rospy.logwarn("Unable to converge to [%f,%f,%f]",
-                               pgoal[0], pgoal[1], pgoal[2]);
+                               pgoal[0], pgoal[1], pgoal[2])
                 if return_J:
                     return theta_initialguess, J
                 return theta_initialguess
@@ -246,32 +257,39 @@ class Controller:
         dt = t - self.last_t
         self.last_t = t
 
+        if self.segments is None:
+            return
+
         # If the current segment is done, replace the semgent with a new one
-        dur = self.segment.duration()
+        dur = self.segments[self.index].duration()
         if (t - self.t0 >= dur):
+            self.index = (self.index + 1)
+            if self.index >= len(self.segments):
+                self.segments = None
+                return
             if self.is_resetting:
                 self.is_resetting = False
                 
             # FIND NEW PUZZLE PIECE
-            x, y = self.detector.get_random_piece_center()
-            x, y = self.detector.screen_to_world(x, y)
-            pgoal = np.array([x, y, 0.10, 0, 0]).reshape((5, 1))
-            goal_theta = self.ikin(pgoal, self.lasttheta)
-            rospy.loginfo("chose location:" + str(pgoal))
-            rospy.loginfo("goal theta: " + str(goal_theta))
-            spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
-            self.change_segment(spline)
+            # x, y = self.detector.get_random_piece_center()
+            # x, y = self.detector.screen_to_world(x, y)
+            # pgoal = np.array([x, y, 0.10, 0, 0]).reshape((5, 1))
+            # goal_theta = self.ikin(pgoal, self.lasttheta)
+            # rospy.loginfo("chose location:" + str(pgoal))
+            # rospy.loginfo("goal theta: " + str(goal_theta))
+            # spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
+            # self.change_segments([spline])
 
         # Decide what to do based on the space.
-        if (self.segment.space() == 'Joint'):
+        if (self.segments[self.index].space() == 'Joint'):
             # Grab the spline output as joint values.
-            (theta, thetadot) = self.segment.evaluate(t - self.t0)
+            (theta, thetadot) = self.segments[self.index].evaluate(t - self.t0)
         else:
             # Grab the spline output as task values.
             # Dim 0-2 are cartesian positions
             # Dim 3 controls tip angle about z axis when end is parallel with table
             # Dim 4 keeps end parallel with table when 0, can be used for flipping
-            (p, v)    = self.segment.evaluate(t - self.t0)
+            (p, v)    = self.segments[self.index].evaluate(t - self.t0)
             
             rospy.loginfo("Screen coordinates of arm: ", 
                           self.detector.world_to_screen(p[0, 0], p[1, 0]))
@@ -339,7 +357,7 @@ if __name__ == "__main__":
     controller = Controller(sim=doSim)
 
     # Prepare a servo loop at 100Hz.
-    rate  = 100;
+    rate  = 100
     servo = rospy.Rate(rate)
     dt    = servo.sleep_dur.to_sec()
     rospy.loginfo("Running the servo loop with dt of %f seconds (%fHz)" %

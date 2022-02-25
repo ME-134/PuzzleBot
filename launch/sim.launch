@@ -1,8 +1,8 @@
 <launch>
   <!-- Define general parameters.  These can be overwritten by the
        roslaunch command line. -->
-  <arg name="urdf"  default="threeDOF.urdf"/>
-  <arg name="model" default="$(find HW1)/urdf/$(arg urdf)"/>
+  <arg name="urdf"  default="5DOF.urdf"/>
+  <arg name="model" default="$(find 5DOF)/urdf/$(arg urdf)"/>
   <arg name="cfg"   default="$(find HW1)/rviz/viewurdf.rviz"/>
 
 

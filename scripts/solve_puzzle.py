@@ -90,8 +90,8 @@ class Controller:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.1, 4.1],
-                                  [-0.5, -2.5],])
+                                  [-.1, 4.2],
+                                  [-0.5, -3.2],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
@@ -272,8 +272,8 @@ class Controller:
             # FIND NEW PUZZLE PIECE
             x, y = self.detector.get_random_piece_center()
             x, y = self.detector.screen_to_world(x, y)
-            pgoal = np.array([x, y, 0.07, 0, 0]).reshape((5, 1))
-            hover = pgoal+np.array([0, 0, .10, 0, 0]).reshape((5, 1))
+            pgoal = np.array([x, y, 0.02, 0, 0]).reshape((5, 1))
+            hover = pgoal+np.array([0, 0, .06, 0, 0]).reshape((5, 1))
             hover_theta = self.ikin(hover, self.mean_theta)
             if hover_theta is None:
                 return

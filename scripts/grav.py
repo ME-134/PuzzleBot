@@ -130,7 +130,7 @@ if __name__ == "__main__":
     generator = Generator()
 
     # Prepare a servo loop at 100Hz.
-    rate  = 100;
+    rate  = 100
     servo = rospy.Rate(rate)
     dt    = servo.sleep_dur.to_sec()
     rospy.loginfo("Running the servo loop with dt of %f seconds (%fHz)" %

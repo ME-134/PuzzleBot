@@ -21,6 +21,13 @@ from splines import *
 
 from piece_outline_detector import Detector
 import enum
+
+class State(enum.Enum):
+    idle   = 0
+    grav   = 1
+    reset  = 2
+    pickup = 3
+
 motor_names = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
 
 class IKinException(Exception):
@@ -35,7 +42,7 @@ class Bounds:
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.pi*1.1]).reshape((5, 1))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1)) * 1000
+    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))/1
     thetadot_min = -thetadot_max
 
     @staticmethod
@@ -46,7 +53,8 @@ class Bounds:
 
     @staticmethod
     def is_thetadot_valid(thetadot, axis=None):
-        return np.all(thetadot <= Bounds.thetadot_max) and np.all(thetadot >= Bounds.thetadot_min)
+        if axis is None:
+            return np.all(thetadot <= Bounds.thetadot_max) and np.all(thetadot >= Bounds.thetadot_min)
         return thetadot[axis] <= Bounds.thetadot_max[axis] and thetadot[axis] >= Bounds.thetadot_min[axis]
 
     @staticmethod
@@ -87,6 +95,7 @@ class Controller:
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
+        self.state = 0
         self.index = 0
         self.t0    = 0.0
         self.last_t = 0.0
@@ -105,10 +114,10 @@ class Controller:
             
         # Create the splines.
         self.segments = []
-        self.is_resetting = False
 
         # Point where the robot resets to
         self.reset_pos = np.array([ 0.1, -0.07, 0.15, 0, 0]).reshape((5,1))
+        self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
 
         # Add spline which goes to the correct starting position
         self.reset(duration = 4)
@@ -126,21 +135,24 @@ class Controller:
     def change_segments(self, segments):
         self.segments = segments
         self.t0 = self.last_t
+        self.index = 0
 
     def reset(self, duration = 10):
         # Assumes that the initial theta is valid. 
         # Will not attempt to reset a theta which is out of bounds.
 
         rospy.loginfo("Resetting robot")
+        self.state = State.reset
 
-        goal_theta = self.ikin(self.reset_pos, self.lasttheta)
+        guess = np.array([-1.4, 1.9, 2.24, -0.30, -1.31]).reshape((5,1))
+        goal_theta = self.ikin(self.reset_pos, guess)
 
+        Bounds.assert_theta_valid(goal_theta)
         Bounds.assert_theta_valid(self.lasttheta)
         Bounds.assert_thetadot_valid(self.lastthetadot)
 
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
-        self.is_resetting = True
 
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
@@ -240,8 +252,8 @@ class Controller:
                 rospy.logwarn("Unable to converge to [%f,%f,%f]",
                                pgoal[0], pgoal[1], pgoal[2])
                 if return_J:
-                    return theta_initialguess, J
-                return theta_initialguess
+                    return None, J
+                return None
         
         #theta = self.fix_goal_theta(theta, xgoal)
         
@@ -253,32 +265,49 @@ class Controller:
 
     # Update is called every 10ms!
     def update(self, t):
-
         dt = t - self.last_t
         self.last_t = t
 
-        if self.segments is None:
+        if self.state == State.idle:
+            # FIND NEW PUZZLE PIECE
+            x, y = self.detector.get_random_piece_center()
+            x, y = self.detector.screen_to_world(x, y)
+            pgoal = np.array([x, y, 0.07, 0, 0]).reshape((5, 1))
+            hover = pgoal+np.array([0, 0, .10, 0, 0]).reshape((5, 1))
+            hover_theta = self.ikin(hover, self.mean_theta)
+            if hover_theta is None:
+                return
+            rospy.loginfo("chose location:" + str(pgoal))
+            rospy.loginfo("goal theta: " + str(hover_theta))
+            spline1 = CubicSpline(self.lasttheta, self.lastthetadot, hover_theta, 0, 3)
+            goal_theta = self.ikin(pgoal, hover_theta)
+            spline2 = CubicSpline(hover_theta, 0, goal_theta, 0, 3)
+            spline3 = CubicSpline(goal_theta, 0, hover_theta, 0, 3)
+            self.change_segments([spline1, spline2, spline3])
+            self.state = State.pickup
+
+        elif self.state == State.grav:
+            cmdmsg = JointState()
+            cmdmsg.name         = motor_names
+            cmdmsg.position     = [np.nan, np.nan, np.nan, np.nan, np.nan]
+            cmdmsg.velocity     = [np.nan, np.nan, np.nan, np.nan, np.nan]
+            cmdmsg.effort       = self.kin.grav(self.lasttheta_state)
+            cmdmsg.header.stamp = rospy.Time.now()
+            self.pub.publish(cmdmsg)
+            cmdmsg.position     = self.lasttheta_state
+            cmdmsg.velocity     = self.lastthetadot_state
+            self.rviz_pub.publish(cmdmsg)
             return
 
-        # If the current segment is done, replace the semgent with a new one
+        # If the current segment is done, replace the segment with a new one
         dur = self.segments[self.index].duration()
         if (t - self.t0 >= dur):
             self.index = (self.index + 1)
+            self.t0 = t
             if self.index >= len(self.segments):
+                self.state = State.idle
                 self.segments = None
                 return
-            if self.is_resetting:
-                self.is_resetting = False
-                
-            # FIND NEW PUZZLE PIECE
-            # x, y = self.detector.get_random_piece_center()
-            # x, y = self.detector.screen_to_world(x, y)
-            # pgoal = np.array([x, y, 0.10, 0, 0]).reshape((5, 1))
-            # goal_theta = self.ikin(pgoal, self.lasttheta)
-            # rospy.loginfo("chose location:" + str(pgoal))
-            # rospy.loginfo("goal theta: " + str(goal_theta))
-            # spline = CubicSpline(self.lasttheta, self.lastthetadot, goal_theta, 0, 3, rm=True)
-            # self.change_segments([spline])
 
         # Decide what to do based on the space.
         if (self.segments[self.index].space() == 'Joint'):
@@ -305,6 +334,9 @@ class Controller:
         self.safe_publish_cmd(theta, thetadot, effort)
 
         if not self.sim and self.is_contacting():
+            if self.state == State.reset:
+                self.state == State.grav
+                return
             self.reset(duration=4)
     
     def safe_publish_cmd(self, position, velocity, effort):

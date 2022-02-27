@@ -73,6 +73,25 @@ class PuzzlePiece:
             return True
         return False
 
+    def fully_contained_in_region(self, region):
+        xmin, ymin, xmax, ymax = region
+        return (xmin < self.x < xmax) and \
+               (xmin < self.x + self.width < xmax) and \
+               (ymin < self.y < ymax) and \
+               (ymin < self.y + self.height < ymax)
+
+    def overlaps_with_region(self, region):
+        xmin, ymin, xmax, ymax = region
+        for (x, y) in [(xmin, ymin), (xmin, ymax), (xmax, ymin), (xmax, ymax)]:
+            if (self.x < x < self.x + self.width) and (self.y < y < self.y + self.height):
+                return True
+        for (x, y) in [(self.x, self.y),
+                       (self.x, self.y+self.height),
+                       (self.x+self.width, self.y),
+                       (self.x+self.width, self.y+self.height)]:
+            if (xmin < x < xmax) and (ymin < x < ymax):
+                return True
+        return False
 #
 #  Detector Node Class
 #
@@ -83,31 +102,31 @@ class Detector:
         msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo)
         self.camD = np.array(msg.D).reshape(5)
         self.camK = np.array(msg.K).reshape((3,3))
-        
+
         # Subscribe to the incoming image topic.  Using a queue size
         # of one means only the most recent message is stored for the
         # next subscriber callback.
         #rospy.init_node('detector')
         self.imgsub = rospy.Subscriber("/usb_cam/image_raw", Image, self.getPiecesesAndPublish, queue_size=1)
-        
+
         self.map_pub = rospy.Publisher('map', OccupancyGrid, queue_size=1)
-        self.map_data_pub = rospy.Publisher('map_metadata', 
+        self.map_data_pub = rospy.Publisher('map_metadata',
                                              MapMetaData, queue_size=1)
         self.map_pub_counter = 0
         self.map_pub_every = 50
 
         # Set up the OpenCV Bridge.
         self.bridge = cv_bridge.CvBridge()
-        
+
 
         # Publish to the processed image.  Store up to three images,
         # in case any clients need a little more time.
         self.pub_bluedots = rospy.Publisher("/detector/pieces", Image, queue_size=3)
         self.pub_binary   = rospy.Publisher("/detector/blocks", Image, queue_size=3)
-        
+
         self.piece_centers = list()
         self.pieces = list()
-        
+
         # ARUCO
         self.arucoDict   = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
         self.arucoParams = cv2.aruco.DetectorParameters_create()
@@ -119,7 +138,7 @@ class Detector:
         bluedots_img, binary_img = self.process(img)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
-        
+
     def init_aruco(self):
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
         image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
@@ -128,29 +147,29 @@ class Detector:
         rospy.loginfo(all_corners)
         if not all_corners:
             raise RuntimeError("Aruco markers not found!!")
-        
+
         # Undistort corners
         all_corners = np.array(all_corners).reshape((-1,2))
         all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
-        
+
         if len(all_corners) != 8:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
-        
+
         #Real Coordinates
         world1 = np.array([-.3543, -.0046])
         world2 = np.array([.1696, 0.1574])
-        
+
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
         screen1 = np.mean(box1, axis=0)
         screen2 = np.mean(box2, axis=0)
         #print(screen1, screen2)
-        
+
         #screen1 = (box1])
         #screen2 = (all_corners[0][0])
-        
-        
+
+
         ids = ids.flatten()
         '''A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
         points = np.array(
@@ -171,28 +190,28 @@ class Detector:
         w = 0.0195
         self.xb = (xmax - xmin) / w
         self.xa = xmin - self.xb * (-0.337)
-        self.yb = -(ymax - ymin) / w 
+        self.yb = -(ymax - ymin) / w
         self.ya = ymin - self.yb * (0.001)
-        
+
         #print(screen1, screen2)
         #print((world2[0] - world1[0]))
         #print((world2[1] - world1[1]))
-        
+
         self.xb = (screen2[0] - screen1[0]) / (world2[0] - world1[0])
         self.xa = screen1[0] - self.xb * (world1[0])
         self.yb = (screen2[1] - screen1[1]) / (world2[1] - world1[1])* 0.16 / 0.14
         self.ya = screen1[1] - self.yb * (world1[1])
-        
+
     def world_to_screen(self, x, y):
         #return self.a + x * self.b
         return (self.xa + x * self.xb, self.ya + y * self.yb)
-        
+
     def screen_to_world(self, x, y):
         coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
         #points = cv2.perspectiveTransform(coords, self.M)
         x, y = coords[0,0,:]
         return ((x - self.xa) / self.xb, (y - self.ya) / self.yb)
-        
+
     def get_random_piece_center(self):
         print("piece centers:", self.piece_centers)
         return random.choice(self.piece_centers)
@@ -200,25 +219,25 @@ class Detector:
     def get_random_piece(self):
         print("pieces centers:", self.pieces)
         return random.choice(self.pieces)
-        
+
     def publish_map_msg(self, img, force=False):
         self.map_pub_counter = (self.map_pub_counter + 1) % self.map_pub_every
         if not force and self.map_pub_counter > 0:
             return
-        
+
         grid_msg = OccupancyGrid()
 
         # Set up the header.
         grid_msg.header.stamp = rospy.Time.now()
         grid_msg.header.frame_id = "map"
 
-        # .info is a nav_msgs/MapMetaData message. 
+        # .info is a nav_msgs/MapMetaData message.
         grid_msg.info.resolution = 0.00095
         grid_msg.info.width = img.shape[1]
         grid_msg.info.height = img.shape[0]
-        
+
         # Rotated maps are not supported... quaternion represents no
-        # rotation. 
+        # rotation.
         grid_msg.info.origin = Pose(Point(-0.38, -0.05, 0),
                                Quaternion(0, 0, 0, 1))
 
@@ -239,44 +258,44 @@ class Detector:
         background_lower = (0, 0, 80)
         background_upper = (255, 30, 220)
         binary = cv2.inRange(hsv, background_lower, background_upper)
-        
+
         # Part of the image which is the puzzle pieces
         blocks = 255 - binary
-        
+
         # Remove noise
         blocks = cv2.dilate(blocks, None, iterations=1)
         blocks = cv2.erode(blocks, None, iterations=1)
-        
+
         # Perform 2 iterations of eroding (by distance)
         piece_centers = blocks
         for i in range(2):
             dist_transform = cv2.distanceTransform(piece_centers,cv2.DIST_L2,5)
             _, piece_centers = cv2.threshold(dist_transform,2,255,0)
             piece_centers = piece_centers.astype(np.uint8)
-    
+
         # One more eroding for good measure
         piece_centers = cv2.erode(piece_centers, None, iterations=4)
 
         n, markers, stats, centroids = cv2.connectedComponentsWithStats(piece_centers)
-        
+
         # Increment so that background is not marked as "unknown"
         markers = markers + 1
-        
+
         for i, stat in enumerate(stats):
             # Background
 
             xmin, ymin, width, height, area = tuple(stat)
-            
+
             # This component is either noise or part of another piece that broke off
             # Mark its area as "unknown" to be filled by watershed
             if area < 200:
                 markers[markers == (i+1)] = 0
-        
+
         # Mark unknown regions
         # This is where it's part of a block but we're not sure which one it's part of.
         unknown = cv2.subtract(blocks, piece_centers)
         markers[unknown == 255] = 0
-        
+
         # Convert image to RGB because watershed only works on RGB
         blobs = cv2.cvtColor(blocks, cv2.COLOR_GRAY2RGB)
 
@@ -288,7 +307,7 @@ class Detector:
         img[markers == 255] = (255, 0, 0)
 
         #return img, markers
-        
+
         piece_centers = list()
         pieces = list()
 
@@ -301,10 +320,10 @@ class Detector:
             # Background
             if i == 0:
                 continue
-            
+
             if i+1 not in markers:
                 continue
-            
+
             xmin, ymin, width, height, area = tuple(stat)
             centroid = tuple(np.array(centroids[i]).astype(np.int32))
             piece = PuzzlePiece(centroid[0], centroid[1], width, height, area)
@@ -331,10 +350,10 @@ class Detector:
             piece_centers.append(piece.get_location())
 
         #markers[res != 0] = 255
-        
+
         # publish map
         self.publish_map_msg(binary[::-1])
-        
+
         '''
         from pathlib import Path
         mappath = Path(__file__) / '../map/map.png'
@@ -361,7 +380,7 @@ if __name__ == "__main__":
 
     # Instantiate the Detector object.
     detector = Detector()
-    
+
     # Use Aruco markers to find transforms
     detector.init_aruco()
     print(detector.screen_to_world(2, 4))
@@ -373,10 +392,10 @@ if __name__ == "__main__":
         img = cv2.imread(filepath)
         result = detector.process(img)
         outfilepath = os.path.join(outdir, filename)
-        cv2.imwrite(outfilepath, result) 
+        cv2.imwrite(outfilepath, result)
     exit(1)
     '''
-    
+
     # Continually process until shutdown.
     rospy.loginfo("Continually processing latest pending images...")
     rospy.spin()

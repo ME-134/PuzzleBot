@@ -11,6 +11,7 @@ import rospy
 import numpy as np
 import matplotlib.pyplot as plt
 import sys, time
+from scripts.actions import RobotAction
 
 from sensor_msgs.msg     import JointState
 from std_msgs.msg        import Bool, Duration, UInt16, Float32
@@ -111,7 +112,7 @@ class Controller:
         else:
             self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/6, np.pi/4, 0, 0]).reshape((5, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
-            
+
         # Create the splines.
         self.segments = []
 
@@ -138,7 +139,7 @@ class Controller:
         self.index = 0
 
     def reset(self, duration = 10):
-        # Assumes that the initial theta is valid. 
+        # Assumes that the initial theta is valid.
         # Will not attempt to reset a theta which is out of bounds.
 
         rospy.loginfo("Resetting robot")
@@ -158,11 +159,11 @@ class Controller:
         # Update our knowledge of true position and velocity of the motors
         self.lasttheta_state = np.array(msg.position).reshape((5,1))
         self.lastthetadot_state = np.array(msg.velocity).reshape((5, 1))
-        
+
     def current_callback(self, msg):
         # Storing current the pump is drawing
         self.current = msg.data
-        
+
     def set_pump(self, value):
         # Turns on/off pump
         msg = UInt16()
@@ -176,26 +177,26 @@ class Controller:
         return (theta_error > 0.11)
 
     def fix_goal_theta(self, goal_theta, goal_pos):
-            
+
         def put_in_range(t):
             return np.remainder(t + np.pi, 2*np.pi) - np.pi
 
         # Mod by 2pi, result should be in the range [-pi, pi]
         goal_theta = put_in_range(goal_theta)
-        
+
         # ikin 3DOF arm gives has 2 solutions
         # Try to find the complementary solution, it might be valid
         if not Bounds.is_theta_valid(goal_theta):
             rospy.loginfo("Attempting to correct to valid position")
-            
+
             # Check if first axis is out of bounds, and correct
-            # This would be 
+            # This would be
             if not Bounds.is_theta_valid(goal_theta, axis=0):
                 rospy.loginfo("Corrected 0th axis of goal_theta")
                 goal_theta *= np.array([    1,       -1, -1, -1, 1]).reshape((5, 1))
                 goal_theta += np.array([np.pi,  np.pi/2,  0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
-                
+
             # Check if second axis is out of bounds, and correct
             if not Bounds.is_theta_valid(goal_theta, axis=1):
                 rospy.loginfo("Corrected 1st axis of goal_theta")
@@ -203,9 +204,9 @@ class Controller:
                 goal_theta *= np.array([ 1, -1, -1, -1, 1]).reshape((5, 1))
                 #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
-            
+
             goal_theta = self.ikin(goal_pos, goal_theta)
-            
+
         Bounds.assert_theta_valid(goal_theta)
 
         return goal_theta
@@ -227,14 +228,14 @@ class Controller:
             ])
             J = np.append(J[:3], angs, axis=0)
 
-            # Extract the position 
+            # Extract the position
             p = p_from_T(T)
 
             # Compute the error
             pgoal = xgoal[:3]
             e_p = ep(pgoal, p).reshape((3, 1))
             e_R = xgoal[3:5] - angs @ theta.reshape((5, 1))
-            
+
             e = np.vstack((e_p, e_R))
 
             # Take a step in the appropriate direction.
@@ -243,7 +244,7 @@ class Controller:
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
                 break
-        
+
         # If we never converge
         else:
             if warning:
@@ -254,10 +255,10 @@ class Controller:
                 if return_J:
                     return None, J
                 return None
-        
+
         #theta = self.fix_goal_theta(theta, xgoal)
-        
-        
+
+
         if return_J:
             return theta, J
         return theta
@@ -302,12 +303,24 @@ class Controller:
         # If the current segment is done, replace the segment with a new one
         dur = self.segments[self.index].duration()
         if (t - self.t0 >= dur):
+            self.t0 = t
+            status = ...
+            solver.notify_action_completed(status)
+            solver.apply_next_action(self)
+            action = solver.get_action()
+            if action == RobotAction.Reset:
+                self.reset()
+            elif action == RobotAction.PickUp:
+                self.state = State.pickup
+            elif action == RobotAction.:
+            '''
             self.index = (self.index + 1)
             self.t0 = t
             if self.index >= len(self.segments):
                 self.state = State.idle
                 self.segments = None
                 return
+            '''
 
         # Decide what to do based on the space.
         if (self.segments[self.index].space() == 'Joint'):
@@ -319,10 +332,10 @@ class Controller:
             # Dim 3 controls tip angle about z axis when end is parallel with table
             # Dim 4 keeps end parallel with table when 0, can be used for flipping
             (p, v)    = self.segments[self.index].evaluate(t - self.t0)
-            
-            rospy.loginfo("Screen coordinates of arm: ", 
+
+            rospy.loginfo("Screen coordinates of arm: ",
                           self.detector.world_to_screen(p[0, 0], p[1, 0]))
-            
+
             theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
             thetadot  = np.linalg.pinv(J[:, :]) @ v
 
@@ -338,9 +351,9 @@ class Controller:
                 self.state == State.grav
                 return
             self.reset(duration=4)
-    
+
     def safe_publish_cmd(self, position, velocity, effort):
-        ''' 
+        '''
         Publish a command to update the robot's position, velocity, effort.
         Check that the values are within reasonable bounds.
         Meant as a safeguard so we don't break anything in real life.
@@ -375,7 +388,7 @@ class Controller:
 #  Main Code
 #
 if __name__ == "__main__":
-    
+
     # Prepare/initialize this node.
     rospy.init_node('straightline')
 

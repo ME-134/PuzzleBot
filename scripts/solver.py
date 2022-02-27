@@ -11,9 +11,17 @@ class SolverTask(enum.Enum):
     GetView = 1
     SeparatePieces = 2
     PutPiecesTogether = 3
+    SeparateOverlappingPieces = 4
+
+class Status(enum.Enum):
+    Ok = 0
+    PieceDropped = 1
+
+    def ok(self):
+        return self == Status.Ok
 
 class Solver:
-    def __init__(self):
+    def __init__(self, detector):
         pass
 
         # Stack
@@ -26,24 +34,61 @@ class Solver:
         self.pieces_cleared = 0
         self.pieces_solved = 0
 
+        # Snapshot of the list of pieces seen by the detector.
+        # Only update when robot arm is not in camera frame.
+        # Use GetView task to achieve this.
+        self.piece_list = list()
+
+        # Same detector as the one used by the controller
+        self.detector = detector
+
     # Public methods
     def notify_action_completed(self, status):
         if not self.tasks:
-            raise RuntimeError("No current tasks")
+            rospy.logerror("[Solver] Action completed recieved but there are no current tasks!")
 
         curr_task = self.tasks[-1]
         if curr_task == SolverTask.GetView:
-            if status == "ok":
+            # The camera should have a clear view of the pieces now.
+            if status.ok():
+                self.piece_list = self.detector.pieces.copy()
                 self.tasks.pop()
             else:
-                pass
-        elif curr_task == SolverTask.SeparatePieces:
+                errmsg = f"[Solver] Unknown error: {status}"
+                rospy.logerror(errmsg)
+                raise RuntimeError(errmsg)
 
-            pass
+        elif curr_task == SolverTask.SeparatePieces:
+            if status.ok():
+                self.pieces_cleared += 1
+                if self.pieces_cleared == self.num_pieces:
+                    rospy.loginfo(f"[Solver] Cleared all {self.num_pieces} pieces, moving on to next task.")
+                    self.tasks.pop()
+
+                # TEMP? Get a new view after every piece
+                self.tasks.append(SolverTask.GetView)
+            else:
+                raise NotImplementedError()
+
+        elif curr_task == SolverTask.PutPiecesTogether:
+            if status.ok():
+                self.pieces_solved += 1
+                if self.pieces_solved == self.num_pieces:
+                    rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
+                    self.tasks.pop()
+            else:
+                raise NotImplementedError()
+
+        elif curr_task == SolverTask.SeparateOverlappingPieces:
+             raise NotImplementedError()
+
+        else:
+            raise RuntimeError(f"Unknown task: {curr_task}")
 
     def apply_next_action(self, controller):
 
         if not self.tasks:
+            rospy.loginfo("[Solver] No current tasks, sending Idle command.")
             controller.idle()
             return
 
@@ -51,6 +96,7 @@ class Solver:
         if curr_task == SolverTask.GetView:
             # If we want to get the view, simply go to the reset position, where
             # the robot arm is not in the camera frame.
+            rospy.loginfo("[Solver] Current task is GetView, sending Reset command.")
             controller.reset()
             return
 
@@ -58,8 +104,9 @@ class Solver:
             # We are trying to clear the center of the playground to make room for
             # the completed puzzle. At the same time, we are rotating all the pieces
             # to their correct orientation.
+            rospy.loginfo("[Solver] Current task is SeparatePieces, sending PieceMove command.")
 
-            for piece in piece_list:
+            for piece in self.piece_list:
                 # Find piece which is not rotated correctly or is in the center
 
                 rotation_offset = self.get_rotation_offset(piece.img)
@@ -70,25 +117,29 @@ class Solver:
                     break
             else:
                 # Nothing more to do in the current task!
+                rospy.logwarn("[Solver] No pieces left to separate, continuing to next solver task.")
                 self.tasks.pop()
                 return self.apply_next_action(controller)
 
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot()
-            controller.move_piece(piece_origin, piece_destination)
+            controller.move_piece(piece_origin, piece_destination, turn=rotation_offset)
             return
 
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented correctly.
             # Select pieces from the border and put them in the right place
+            rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
 
             target_piece = self.reference_pieces[self.pieces_solved]
-            for piece in piece_list:
+            for piece in self.piece_list:
                 if self.pieces_match(piece.img, target_piece.img):
                     break
             else:
                 # Error, no piece found!
                 rospy.logwarn(f"[Solver] Target piece #{self.peices_solved} not found! Getting a new view.")
+
+                # Attempt to recover by getting another view of the camera
                 self.tasks.append(SolverTask.GetView)
                 return self.apply_next_action(controller)
 
@@ -98,6 +149,10 @@ class Solver:
             piece_destination = target_piece.get_center()
 
             controller.move_piece(piece_origin, piece_destination)
+
+        elif curr_task == SolverTask.SeparateOverlappingPieces:
+            raise NotImplementedError()
+
         else:
             raise RuntimeError(f"Unknown task: {curr_task}")
 

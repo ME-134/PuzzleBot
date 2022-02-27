@@ -286,14 +286,7 @@ class Controller:
 
         # If we never converge
         else:
-            if warning:
-                # TODO: ask Hayama if we can change to error
-                # After 50 iterations, return the failure and zero instead!
-                rospy.logwarn("Unable to converge to [%f,%f,%f]",
-                               pgoal[0], pgoal[1], pgoal[2])
-                if return_J:
-                    return None, J
-                return None
+            raise RuntimeError(f"Unable to converge to {pgoal.flatten()}")
 
         #theta = self.fix_goal_theta(theta, xgoal)
 
@@ -342,24 +335,16 @@ class Controller:
         # If the current segment is done, replace the segment with a new one
         dur = self.segments[self.index].duration()
         if (t - self.t0 >= dur):
-            self.t0 = t
-            status = ...
-            solver.notify_action_completed(status)
-            solver.apply_next_action(self)
-            action = solver.get_action()
-            if action == RobotAction.Reset:
-                self.reset()
-            elif action == RobotAction.PickUp:
-                self.state = State.pickup
-            elif action == RobotAction.:
-            '''
             self.index = (self.index + 1)
             self.t0 = t
             if self.index >= len(self.segments):
                 self.state = State.idle
                 self.segments = None
+
+                status = ...
+                self.solver.notify_action_completed(status)
+                self.solver.apply_next_action(self)
                 return
-            '''
 
         # Decide what to do based on the space.
         if (self.segments[self.index].space() == 'Joint'):

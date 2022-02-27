@@ -21,6 +21,7 @@ from force_kin import *
 from splines import *
 
 from piece_outline_detector import Detector
+from solver import Solver
 import enum
 
 class State(enum.Enum):
@@ -131,6 +132,7 @@ class Controller:
 
         self.detector = Detector()
         self.detector.init_aruco()
+        self.solver = Solver(self.detector)
 
 
     def change_segments(self, segments):
@@ -138,7 +140,7 @@ class Controller:
         self.t0 = self.last_t
         self.index = 0
 
-    def reset(self, duration = 10):
+    def reset(self, duration = 4):
         # Assumes that the initial theta is valid.
         # Will not attempt to reset a theta which is out of bounds.
 
@@ -155,9 +157,46 @@ class Controller:
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
 
+    def move_piece(self, piece_origin, piece_destination, turn=0):
+        # piece_origin and piece_destination given in pixel space
+
+        pickup_height = 0.02
+        hover_amount  = 0.06
+
+        # move from current pos to piece_origin
+        def get_piece_and_hover_thetas(pixel_coords, turn=0):
+            x, y = pixel_coords
+            x, y = self.detector.screen_to_world(x, y)
+            pgoal = np.array([x, y, pickup_height, 0, turn]).reshape((5, 1))
+            hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
+
+            # ASK Hayama: why not self.lasttheta?
+            hover_theta = self.ikin(hover, self.mean_theta)
+            rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
+            goal_theta = self.ikin(pgoal, hover_theta)
+            rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
+            return goal_theta, hover_theta
+
+        origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
+        dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
+
+        splines = list()
+        splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3))
+        splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 2))
+        splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 2))
+        splines.append(CubicSpline(origin_hover, 0, dest_hover, 0, 3))
+        splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 2))
+        splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 2))
+        self.change_segments(splines)
+        self.state = State.pickup
+
+    def idle(self):
+        self.change_segments([])
+        self.state = State.grav
+
     def state_update_callback(self, msg):
         # Update our knowledge of true position and velocity of the motors
-        self.lasttheta_state = np.array(msg.position).reshape((5,1))
+        self.lasttheta_state = np.array(msg.position).reshape((5, 1))
         self.lastthetadot_state = np.array(msg.velocity).reshape((5, 1))
 
     def current_callback(self, msg):

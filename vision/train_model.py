@@ -42,9 +42,9 @@ class ImagesDS(data.Dataset):
         while min(np_negative.shape[0], np_negative.shape[1]) < 200:
             np_negative= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
 
-        anchor = self.transform(np_image)
-        positive = self.transform(np_image)
-        negative = self.transform(np_negative)
+        anchor = self.transform(np_image / 255.0)
+        positive = self.transform(np_image / 255.0)
+        negative = self.transform(np_negative / 255.0)
 
         return anchor, positive, negative
 
@@ -108,6 +108,8 @@ def train_model(model, train_loader, val_loader, optimizer, num_epochs, batch_si
     epochs_since_best = 0
     dataloaders = {'train':train_loader, 'val':val_loader}
     dataset_sizes = {'train': int(len(dataloaders['train'].dataset)/batch_size + 1), 'val' : int(len(dataloaders['val'].dataset)/batch_size + 1)}
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
     for epoch in range(num_epochs):
         
         print('Epoch {}/{}'.format(epoch+1, num_epochs))
@@ -123,7 +125,7 @@ def train_model(model, train_loader, val_loader, optimizer, num_epochs, batch_si
             bar = tqdm(enumerate(dataloaders[phase]), total=dataset_sizes[phase])
             for i, (anchor, positive, negative) in bar:
                 #batch_size x n_channel x width x height
-                anchor, positive, negative = anchor.permute(0, 3, 1, 2).to(device), positive.permute(0, 3, 1, 2).to(device), negative.permute(0, 3, 1, 2).to(device)
+                anchor, positive, negative = normalize(anchor.permute(0, 3, 1, 2)).to(device), normalize(positive.permute(0, 3, 1, 2)).to(device), normalize(negative.permute(0, 3, 1, 2)).to(device)
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs_anchor = model(anchor)

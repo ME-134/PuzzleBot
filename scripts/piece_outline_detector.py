@@ -23,12 +23,14 @@ from nav_msgs.msg import OccupancyGrid, MapMetaData
 from geometry_msgs.msg import Pose, Point, Quaternion
 
 class PuzzlePiece:
-    def __init__(self, x, y, w, h, area):
+    def __init__(self, x, y, w, h, area, xmin, ymin):
         self.x = x
         self.y = y
         self.width  = w
         self.height = h
         self.area   = area
+        self.xmin = xmin
+        self.ymin = ymin
 
         self.color = tuple(map(int, np.random.random(size=3) * 255))
 
@@ -43,6 +45,9 @@ class PuzzlePiece:
     def set_location(self, x, y):
         self.x = x
         self.y = y
+
+    def get_center(self):
+        return self.get_location()
 
     def set_img(self, img):
         self.img = img
@@ -128,7 +133,7 @@ class Detector:
         self.pieces = list()
 
         # ARUCO
-        self.arucoDict   = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+        self.arucoDict   = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_50)
         self.arucoParams = cv2.aruco.DetectorParameters_create()
         self.latestImage = None
 
@@ -157,8 +162,8 @@ class Detector:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
-        world1 = np.array([-.3543, -.0046])
-        world2 = np.array([.1696, 0.1574])
+        world1 = np.array([-.3573, -.0897])
+        world2 = np.array([.1153, 0.2971])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
@@ -326,7 +331,7 @@ class Detector:
 
             xmin, ymin, width, height, area = tuple(stat)
             centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            piece = PuzzlePiece(centroid[0], centroid[1], width, height, area)
+            piece = PuzzlePiece(centroid[0], centroid[1], width, height, area, xmin, ymin)
             #if piece.is_valid():
             if True:
                 # First try to match the piece

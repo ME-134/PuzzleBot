@@ -11,7 +11,6 @@ import rospy
 import numpy as np
 import matplotlib.pyplot as plt
 import sys, time
-from scripts.actions import RobotAction
 
 from sensor_msgs.msg     import JointState
 from std_msgs.msg        import Bool, Duration, UInt16, Float32
@@ -21,7 +20,7 @@ from force_kin import *
 from splines import *
 
 from piece_outline_detector import Detector
-from solver import Solver
+from solver import Solver, Status
 import enum
 
 class State(enum.Enum):
@@ -44,7 +43,7 @@ class Bounds:
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.pi*1.1]).reshape((5, 1))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))/1
+    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))/2
     thetadot_min = -thetadot_max
 
     @staticmethod
@@ -103,6 +102,8 @@ class Controller:
         self.last_t = 0.0
         self.sim = sim
 
+        self.pump_value = 0
+
         # Also initialize the storage of the last joint position
         # (angles) to where the first segment starts.
 
@@ -160,7 +161,7 @@ class Controller:
     def move_piece(self, piece_origin, piece_destination, turn=0):
         # piece_origin and piece_destination given in pixel space
 
-        pickup_height = 0.02
+        pickup_height = -0.005
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
@@ -171,8 +172,10 @@ class Controller:
             hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
 
             # ASK Hayama: why not self.lasttheta?
+            print(hover)
             hover_theta = self.ikin(hover, self.mean_theta)
             rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
+            print(pgoal)
             goal_theta = self.ikin(pgoal, hover_theta)
             rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
             return goal_theta, hover_theta
@@ -182,11 +185,13 @@ class Controller:
 
         splines = list()
         splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3))
-        splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 2))
-        splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 2))
+        splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 1))
+        splines.append(CubicSpline(origin_goal, 0, origin_goal, 0, 0.5))
+        splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 1))
         splines.append(CubicSpline(origin_hover, 0, dest_hover, 0, 3))
-        splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 2))
-        splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 2))
+        splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 1))
+        splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.5))
+        splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 1))
         self.change_segments(splines)
         self.state = State.pickup
 
@@ -206,8 +211,9 @@ class Controller:
     def set_pump(self, value):
         # Turns on/off pump
         msg = UInt16()
-        msg.data = 1 if value else 0
-        self.pump_pub.pub(msg)
+        self.pump_value = 1 if value else 0
+        msg.data = self.pump_value
+        self.pump_pub.publish(msg)
         return True
 
     def is_contacting(self):
@@ -337,11 +343,18 @@ class Controller:
         if (t - self.t0 >= dur):
             self.index = (self.index + 1)
             self.t0 = t
+
+            if self.state == State.pickup:
+                if self.index == 2 and not self.pump_value:
+                    self.set_pump(True)
+                elif self.index == 6 and self.pump_value:
+                    self.set_pump(False)
+
             if self.index >= len(self.segments):
                 self.state = State.idle
                 self.segments = None
 
-                status = ...
+                status = Status.Ok
                 self.solver.notify_action_completed(status)
                 self.solver.apply_next_action(self)
                 return
@@ -370,11 +383,11 @@ class Controller:
         effort = self.kin.grav(self.lasttheta_state)
         self.safe_publish_cmd(theta, thetadot, effort)
 
-        if not self.sim and self.is_contacting():
-            if self.state == State.reset:
-                self.state == State.grav
-                return
-            self.reset(duration=4)
+        #if not self.sim and self.is_contacting():
+        #    if self.state == State.reset:
+        #        self.state == State.grav
+        #        return
+        #    self.reset(duration=4)
 
     def safe_publish_cmd(self, position, velocity, effort):
         '''
@@ -454,3 +467,4 @@ if __name__ == "__main__":
         # Wait for the next turn.  The timing is determined by the
         # above definition of servo.
         servo.sleep()
+

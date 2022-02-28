@@ -5,7 +5,6 @@ import enum
 import rospy
 
 import numpy as np
-from scripts.actions import RobotAction
 
 class SolverTask(enum.Enum):
     GetView = 1
@@ -123,6 +122,8 @@ class Solver:
 
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot()
+
+            print(piece_origin, piece_destination)
             controller.move_piece(piece_origin, piece_destination, turn=rotation_offset)
             return
 
@@ -188,4 +189,4 @@ class Solver:
         to put a piece there.
         '''
         # TODO
-        return (50, 50)
+        return (300, 300)

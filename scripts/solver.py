@@ -6,6 +6,8 @@ import rospy
 
 import numpy as np
 
+from thomas_detector import ThomasDetector, ThomasPuzzlePiece
+
 class SolverTask(enum.Enum):
     GetView = 1
     SeparatePieces = 2
@@ -164,7 +166,13 @@ class Solver:
         Given an image of a piece, return how many radians clockwise it should be
         turned to be in the correct orientation.
         '''
-        # TODO
+        return 1.
+        detector = ThomasDetector()
+        detector.process(piece_img)
+
+        if (len(detector.pieces) > 0):
+            return detector.pieces[0].get_rotation_to_align(compute_bounding_box = True)
+
         return 0.
 
     def pieces_match(self, piece1_img, piece2_img):

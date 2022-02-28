@@ -111,7 +111,6 @@ class Solver:
                 # Find piece which is not rotated correctly or is in the center
 
                 rotation_offset = -1 * self.get_rotation_offset(piece.img)
-                print(rotation_offset)
                 threshold_rotation_error = 0.05
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
@@ -125,7 +124,7 @@ class Solver:
 
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot()
-
+            print("HEEHEHH")
             print(piece_origin, piece_destination)
             controller.move_piece(piece_origin, piece_destination, turn=rotation_offset)
             return
@@ -152,7 +151,7 @@ class Solver:
             # FIXME, this isn't quite right but is a good start
             piece_destination = target_piece.get_center()
 
-            controller.move_piece(piece_origin, piece_destination)
+            controller.move_piece(piece_origin, piece_destination, jiggle=True)
 
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             raise NotImplementedError()
@@ -197,4 +196,6 @@ class Solver:
         to put a piece there.
         '''
         # TODO
-        return (300, 300)
+        n = self.pieces_cleared
+        
+        return (250 + 70*(n%5), 200 + 70*(n//5))#(300, 300)

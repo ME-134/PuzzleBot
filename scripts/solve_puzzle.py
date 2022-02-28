@@ -43,7 +43,7 @@ class Bounds:
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.inf]).reshape((5, 1))
 
     # I don't know
-    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))/2
+    thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.inf]).reshape((5, 1))/2
     thetadot_min = -thetadot_max
 
     @staticmethod
@@ -158,10 +158,11 @@ class Controller:
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
 
-    def move_piece(self, piece_origin, piece_destination, turn=0):
+    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False):
         # piece_origin and piece_destination given in pixel space
+        rospy.loginfo("[Controller] Moving piece from {piece_origin} to {piece_destination}")
 
-        pickup_height = -0.005
+        pickup_height = -0.01
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
@@ -361,11 +362,13 @@ class Controller:
                 self.solver.notify_action_completed(status)
                 self.solver.apply_next_action(self)
 
+        #print(self.segments[self.index].space())
         # Decide what to do based on the space.
         if (self.segments[self.index].space() == 'Joint'):
             # Grab the spline output as joint values.
             (theta, thetadot) = self.segments[self.index].evaluate(t - self.t0)
         else:
+            print(self.segments[self.index].space())
             # Grab the spline output as task values.
             # Dim 0-2 are cartesian positions
             # Dim 3 controls tip angle about z axis when end is parallel with table

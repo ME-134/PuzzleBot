@@ -359,7 +359,7 @@ class Detector:
                 pieces.append(piece)
 
 
-                cutout_img = img_orig[max(ymin-100,0):ymin+height+100, max(xmin-100,0):xmin+height+100].copy()
+                cutout_img = img_orig[max(ymin-30,0):ymin+height+30, max(xmin-30,0):xmin+height+30].copy()
                 piece.set_img(cutout_img)
 
 

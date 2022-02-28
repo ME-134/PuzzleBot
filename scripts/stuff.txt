@@ -1,0 +1,8 @@
+(all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
+print(all_corners)
+all_corners = np.array(all_corners).reshape((-1,2))
+ids = np.array(ids).reshape((-1))
+A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
+coords = np.random.rand(40, 2)
+M, _, _, _ = np.linalg.lstsq(A, coords, rcond=None)
+M = M.transpose()

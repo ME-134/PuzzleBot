@@ -252,7 +252,7 @@ class Detector:
         self.map_pub.publish(grid_msg)
 
     def process(self, img):
-
+        img_orig = img.copy()
         # Filter out background
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         background_lower = (0, 0, 80)
@@ -339,8 +339,9 @@ class Detector:
                             break
                 pieces.append(piece)
 
-                #cutout_img = img[ymin:ymin+height, xmin:xmin+height].copy()
-                #piece.set_img(cutout_img)
+
+                cutout_img = img_orig[max(ymin-100,0):ymin+height+100, max(xmin-100,0):xmin+height+100].copy()
+                piece.set_img(cutout_img)
 
 
         for piece in pieces:

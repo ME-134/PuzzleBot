@@ -39,8 +39,8 @@ class BoundsException(Exception):
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2,      -0.1, -np.pi*0.9, -np.pi, -np.pi*1.1]).reshape((5, 1))
-    theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.pi*1.1]).reshape((5, 1))
+    theta_min = np.array([-np.pi/2,      -0.1, -np.pi*0.9, -np.pi, -np.inf]).reshape((5, 1))
+    theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.inf]).reshape((5, 1))
 
     # I don't know
     thetadot_max = np.array([np.pi, np.pi, np.pi, np.pi, np.pi]).reshape((5, 1))/2
@@ -308,7 +308,7 @@ class Controller:
         dt = t - self.last_t
         self.last_t = t
 
-        print(self.state)
+        #print(self.state)
 
         if self.state == State.idle:
             # FIND NEW PUZZLE PIECE

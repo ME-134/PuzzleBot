@@ -110,7 +110,8 @@ class Solver:
             for piece in self.piece_list:
                 # Find piece which is not rotated correctly or is in the center
 
-                rotation_offset = self.get_rotation_offset(piece.img)
+                rotation_offset = -1 * self.get_rotation_offset(piece.img)
+                print(rotation_offset)
                 threshold_rotation_error = 0.05
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
@@ -166,7 +167,6 @@ class Solver:
         Given an image of a piece, return how many radians clockwise it should be
         turned to be in the correct orientation.
         '''
-        return 1.
         detector = ThomasDetector()
         detector.process(piece_img)
 

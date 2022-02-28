@@ -168,7 +168,8 @@ class Controller:
         def get_piece_and_hover_thetas(pixel_coords, turn=0):
             x, y = pixel_coords
             x, y = self.detector.screen_to_world(x, y)
-            pgoal = np.array([x, y, pickup_height, 0, turn]).reshape((5, 1))
+            print(pixel_coords, x, y)
+            pgoal = np.array([x, y, pickup_height, turn, 0]).reshape((5, 1))
             hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
 
             # ASK Hayama: why not self.lasttheta?
@@ -307,6 +308,8 @@ class Controller:
         dt = t - self.last_t
         self.last_t = t
 
+        print(self.state)
+
         if self.state == State.idle:
             # FIND NEW PUZZLE PIECE
             x, y = self.detector.get_random_piece_center()
@@ -357,7 +360,6 @@ class Controller:
                 status = Status.Ok
                 self.solver.notify_action_completed(status)
                 self.solver.apply_next_action(self)
-                return
 
         # Decide what to do based on the space.
         if (self.segments[self.index].space() == 'Joint'):

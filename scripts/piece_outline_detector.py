@@ -107,6 +107,7 @@ class Detector:
         msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo)
         self.camD = np.array(msg.D).reshape(5)
         self.camK = np.array(msg.K).reshape((3,3))
+        self.transform = None
 
         # Subscribe to the incoming image topic.  Using a queue size
         # of one means only the most recent message is stored for the
@@ -155,27 +156,44 @@ class Detector:
 
         # Undistort corners
         all_corners = np.array(all_corners).reshape((-1,2))
+        print(all_corners)
         all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
 
-        if len(all_corners) != 8:
+        if len(all_corners) != 16:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
         world1 = np.array([-.3573, -.0897])
         world2 = np.array([.1153, 0.2971])
+        world3 = np.array([-0.3660, 0.2581])
+        world4 = np.array([0.1466, -0.0540])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
+        box3 = all_corners[8:12]
+        box4 = all_corners[12:16]
+
         screen1 = np.mean(box1, axis=0)
         screen2 = np.mean(box2, axis=0)
+        screen3 = np.mean(box3, axis=0)
+        screen4 = np.mean(box4, axis=0)
+
+        ids = ids.flatten()
+        screens = np.float32([screen1, screen2, screen3, screen4])[ids]
+        worlds = np.float32([world1, world2, world3, world4])
+        self.transform = cv2.getPerspectiveTransform(screens, worlds)
+        print(screens)
+
+        # Box 1 is lower-left
+        if screen2[0] < screen1[0]:
+            screen1, screen2 = screen2, screen1
         #print(screen1, screen2)
 
         #screen1 = (box1])
         #screen2 = (all_corners[0][0])
 
 
-        ids = ids.flatten()
         '''A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
         points = np.array(
             [[1,1]
@@ -192,19 +210,13 @@ class Detector:
         ymax = np.max(box[:, 1])
         #rospy.loginfo("xmin, xmax, ymin, ymax: ", xmin, xmax, ymin, ymax)
 
-        w = 0.0195
-        self.xb = (xmax - xmin) / w
-        self.xa = xmin - self.xb * (-0.337)
-        self.yb = -(ymax - ymin) / w
-        self.ya = ymin - self.yb * (0.001)
-
         #print(screen1, screen2)
         #print((world2[0] - world1[0]))
         #print((world2[1] - world1[1]))
 
         self.xb = (screen2[0] - screen1[0]) / (world2[0] - world1[0])
         self.xa = screen1[0] - self.xb * (world1[0])
-        self.yb = (screen2[1] - screen1[1]) / (world2[1] - world1[1])* 0.16 / 0.14
+        self.yb = (screen2[1] - screen1[1]) / (world2[1] - world1[1])#* 0.16 / 0.14
         self.ya = screen1[1] - self.yb * (world1[1])
 
     def world_to_screen(self, x, y):
@@ -214,8 +226,10 @@ class Detector:
     def screen_to_world(self, x, y):
         coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
         #points = cv2.perspectiveTransform(coords, self.M)
-        x, y = coords[0,0,:]
-        return ((x - self.xa) / self.xb, (y - self.ya) / self.yb)
+        #x, y = coords[0,0,:]
+        x, y = cv2.perspectiveTransform(coords, self.transform)[0, 0]
+        return (x, y)
+        #return ((x - self.xa) / self.xb, (y - self.ya) / self.yb)
 
     def get_random_piece_center(self):
         print("piece centers:", self.piece_centers)

@@ -1,10 +1,7 @@
 import cv2
 import numpy as np
-import random
 
-import os
-
-class PuzzlePiece:
+class ThomasPuzzlePiece:
     def __init__(self, x, y, w, h, area):
         self.x = x
         self.y = y
@@ -56,6 +53,7 @@ class PuzzlePiece:
         return False
     
     def get_bounding_box(self, threshold = 100):
+        # Compute a contour and then use the largest countour to build a bounding box
         contours, hierarchy = cv2.findContours(self.img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         biggest_contour = max(contours, key = cv2.contourArea)
         rect = cv2.minAreaRect(biggest_contour)
@@ -63,7 +61,10 @@ class PuzzlePiece:
         
         return self.box_raw
     
-    def get_rotation_to_align(self, box_raw = None):
+    def get_rotation_to_align(self, compute_bounding_box = False, box_raw = None):
+        # Use the vector of the top of the bounding box to orient the piece. 
+        if compute_bounding_box:
+            self.get_bounding_box()
         if (box_raw == None):
             box_raw = self.box_raw
             
@@ -71,10 +72,8 @@ class PuzzlePiece:
         top_line_vector = top_line_vector / np.linalg.norm(top_line_vector)
         return np.arccos(top_line_vector.dot(np.array([1, 0])))
     
-    
-    
-    
-class Detector:
+
+class ThomasDetector:
     def __init__(self):
         self.piece_centers = list()
         self.pieces = list()
@@ -155,7 +154,7 @@ class Detector:
             
             xmin, ymin, width, height, area = tuple(stat)
             centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            piece = PuzzlePiece(centroid[0], centroid[1], width, height, area)
+            piece = ThomasPuzzlePiece(centroid[0], centroid[1], width, height, area)
             #if piece.is_valid():
             if True:
                 # First try to match the piece

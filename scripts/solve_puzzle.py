@@ -38,6 +38,22 @@ class BoundsException(Exception):
 class InvalidSpaceException(Exception):
     pass
 
+class FuncSegment:
+    # Calls function with no arguments
+    # Can be added to segments list
+    def __init__(self, func):
+        self.func = func
+
+    def duration(self):
+        return .05
+
+    # Return the segment's space
+    def space(self):
+        return 'Func'
+
+    def __call__(self):
+        self.func()
+
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
@@ -198,11 +214,13 @@ class Controller:
         dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
         splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
         splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 1, space=space))
+        splines.append(FuncSegment(lambda: self.set_pump(True)))
         splines.append(CubicSpline(origin_goal, 0, origin_goal, 0, 0.5, space=space))
         splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 1, space=space))
         splines.append(CubicSpline(origin_hover, 0, dest_hover, 0, 3, space=space))
         splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 1, space=space))
-        splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.5, space=space))
+        splines.append(FuncSegment(lambda: self.set_pump(False)))
+        splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.7, space=space))
         splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
         self.change_segments(splines)
         self.state = State.pickup
@@ -358,11 +376,11 @@ class Controller:
             self.index = (self.index + 1)
             self.t0 = t
 
-            if self.state == State.pickup:
-                if self.index == 2 and not self.pump_value:
-                    self.set_pump(True)
-                elif self.index == 6 and self.pump_value:
-                    self.set_pump(False)
+            # if self.state == State.pickup:
+            #     if self.index == 2 and not self.pump_value:
+            #         self.set_pump(True)
+            #     elif self.index == 6 and self.pump_value:
+            #         self.set_pump(False)
 
             if self.index >= len(self.segments):
                 self.state = State.idle
@@ -377,8 +395,8 @@ class Controller:
         if (self.segments[self.index].space() == 'Joint'):
             # Grab the spline output as joint values.
             (theta, thetadot) = self.segments[self.index].evaluate(t - self.t0)
-        else:
-            print(self.segments[self.index].space())
+            
+        elif (self.segments[self.index].space() == 'Task'):
             # Grab the spline output as task values.
             # Dim 0-2 are cartesian positions
             # Dim 3 controls tip angle about z axis when end is parallel with table
@@ -390,6 +408,16 @@ class Controller:
 
             theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
             thetadot  = np.linalg.pinv(J[:, :]) @ v
+
+        elif (self.segments[self.index].space() == 'Func'):
+            self.segments[self.index]()
+            return
+
+        else:
+            errmsg = f"Space \"{self.segments[self.index].space()}\" is invalid"
+            rospy.signal_shutdown(errmsg)
+            raise InvalidSpaceException(errmsg)
+
 
         # Save the position (to be used as an estimate next time).
         self.lasttheta = theta

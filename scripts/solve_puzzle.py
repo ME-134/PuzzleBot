@@ -181,8 +181,11 @@ class Controller:
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo("[Controller] Moving piece from {piece_origin} to {piece_destination}")
-
-        pickup_height = -0.01
+        
+        if jiggle:
+            pickup_height = 0
+        else:
+            pickup_height = -0.01
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
@@ -221,6 +224,10 @@ class Controller:
         splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 1, space=space))
         splines.append(FuncSegment(lambda: self.set_pump(False)))
         splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.7, space=space))
+        if jiggle:
+            rot = np.array([0, 0, 0, 0, -.5])
+            splines.append(CubicSpline(dest_goal, 0, dest_goal + rot, 0, 0.5, space=space))
+            splines.append(CubicSpline(dest_goal + rot, 0, dest_goal - rot, 0, 1, space=space))
         splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
         self.change_segments(splines)
         self.state = State.pickup

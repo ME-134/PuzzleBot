@@ -33,6 +33,9 @@ class Solver:
 
         self.num_pieces = 20
         self.pieces_cleared = 0
+        self.separated_grid = np.zeros((4, 5))
+        self.separated_loc = np.array([220, 100])
+        self.separated_spacing = 100
         self.pieces_solved = 0
 
         # Snapshot of the list of pieces seen by the detector.
@@ -108,8 +111,11 @@ class Solver:
             rospy.loginfo("[Solver] Current task is SeparatePieces, sending PieceMove command.")
 
             for piece in self.piece_list:
-                # Find piece which is not rotated correctly or is in the center
+                # Make sure piece is not already separated
+                if np.all(piece.get_center() > self.separated_loc - np.array([5, 5])):
+                    continue
 
+                # Find piece which is not rotated correctly or is in the center
                 rotation_offset = -1 * self.get_rotation_offset(piece.img)
                 threshold_rotation_error = 0.05
                 if abs(rotation_offset) > threshold_rotation_error:
@@ -122,9 +128,12 @@ class Solver:
                 self.tasks.pop()
                 return self.apply_next_action(controller)
 
+            import matplotlib.pyplot as plt
+            # print(rotation_offset * 180 / np.pi)
+            # plt.imshow(piece.img)
+            # plt.show()
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot()
-            print("HEEHEHH")
             print(piece_origin, piece_destination)
             controller.move_piece(piece_origin, piece_destination, turn=rotation_offset)
             return
@@ -198,4 +207,4 @@ class Solver:
         # TODO
         n = self.pieces_cleared
         
-        return (250 + 70*(n%5), 200 + 70*(n//5))#(300, 300)
+        return self.separated_loc + [self.separated_spacing*(n%5), self.separated_spacing*(n//5)]

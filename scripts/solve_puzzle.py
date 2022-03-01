@@ -35,6 +35,8 @@ class IKinException(Exception):
     pass
 class BoundsException(Exception):
     pass
+class InvalidSpaceException(Exception):
+    pass
 
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
@@ -91,8 +93,8 @@ class Controller:
 
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
-                                  [-.1, 4.2],
-                                  [-0.5, -3.2],])
+                                  [-.1, 4.4],
+                                  [-0.5, -3.3],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
@@ -119,7 +121,7 @@ class Controller:
         self.segments = []
 
         # Point where the robot resets to
-        self.reset_pos = np.array([ 0.1, -0.07, 0.15, 0, 0]).reshape((5,1))
+        self.reset_pos = np.array([ 0.06, -0.11, 0.15, 0, 0]).reshape((5,1))
         self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
 
         # Add spline which goes to the correct starting position
@@ -148,8 +150,10 @@ class Controller:
         rospy.loginfo("Resetting robot")
         self.state = State.reset
 
-        guess = np.array([-1.4, 1.9, 2.24, -0.30, -1.31]).reshape((5,1))
+        guess = np.array([-1.31, 1.88, 2.26, -0.38, -1.31]).reshape((5,1))
         goal_theta = self.ikin(self.reset_pos, guess)
+        print('\n\n\n')
+        print(goal_theta)
 
         Bounds.assert_theta_valid(goal_theta)
         Bounds.assert_theta_valid(self.lasttheta)
@@ -158,7 +162,7 @@ class Controller:
         spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
 
-    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False):
+    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo("[Controller] Moving piece from {piece_origin} to {piece_destination}")
 
@@ -169,31 +173,37 @@ class Controller:
         def get_piece_and_hover_thetas(pixel_coords, turn=0):
             x, y = pixel_coords
             x, y = self.detector.screen_to_world(x, y)
-            print(pixel_coords, x, y)
+            # print(pixel_coords, x, y)
             pgoal = np.array([x, y, pickup_height, turn, 0]).reshape((5, 1))
             hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
 
-            # ASK Hayama: why not self.lasttheta?
-            print(hover)
-            hover_theta = self.ikin(hover, self.mean_theta)
-            rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
-            print(pgoal)
-            goal_theta = self.ikin(pgoal, hover_theta)
-            rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
-            return goal_theta, hover_theta
-
-        origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
-        dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
+            if space == 'Joint':
+                # ASK Hayama: why not self.lasttheta?
+                hover_theta = self.ikin(hover, self.mean_theta)
+                rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
+                goal_theta = self.ikin(pgoal, hover_theta)
+                rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
+                return goal_theta, hover_theta
+            elif space == 'Task':
+                rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}")
+                rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}")
+                return pgoal, hover
+            else:
+                errmsg = f"Space \"{space}\" is invalid"
+                rospy.signal_shutdown(errmsg)
+                raise InvalidSpaceException(errmsg)
 
         splines = list()
-        splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3))
-        splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 1))
-        splines.append(CubicSpline(origin_goal, 0, origin_goal, 0, 0.5))
-        splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 1))
-        splines.append(CubicSpline(origin_hover, 0, dest_hover, 0, 3))
-        splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 1))
-        splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.5))
-        splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 1))
+        origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
+        dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
+        splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
+        splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 1, space=space))
+        splines.append(CubicSpline(origin_goal, 0, origin_goal, 0, 0.5, space=space))
+        splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 1, space=space))
+        splines.append(CubicSpline(origin_hover, 0, dest_hover, 0, 3, space=space))
+        splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 1, space=space))
+        splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.5, space=space))
+        splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
         self.change_segments(splines)
         self.state = State.pickup
 

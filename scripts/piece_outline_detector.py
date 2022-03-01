@@ -164,10 +164,10 @@ class Detector:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
-        world1 = np.array([-.3573, -.0897])
-        world2 = np.array([.1153, 0.2971])
-        world3 = np.array([-0.3660, 0.2581])
-        world4 = np.array([0.1466, -0.0540])
+        world1 = np.array([-.3535, -.0902])
+        world2 = np.array([.1238, 0.2923])
+        world3 = np.array([-0.3619, 0.2574])
+        world4 = np.array([0.1464, -0.0610])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
@@ -257,7 +257,7 @@ class Detector:
 
         # Rotated maps are not supported... quaternion represents no
         # rotation.
-        grid_msg.info.origin = Pose(Point(-0.38, -0.05, 0),
+        grid_msg.info.origin = Pose(Point(-0.44, -0.12, 0),
                                Quaternion(0, 0, 0, 1))
 
         # Flatten the numpy array into a list of integers from 0-100.

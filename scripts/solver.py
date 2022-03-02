@@ -125,7 +125,7 @@ class Solver:
                 rotation_offset *= -1
                 rotation_offset = np.fmod(rotation_offset, np.pi/2)
 
-                print("rotation: ", rotation_offset)
+                # print("rotation: ", rotation_offset)
                 ### END TEMP
                 threshold_rotation_error = 0.05
                 if abs(rotation_offset) > threshold_rotation_error:
@@ -138,7 +138,7 @@ class Solver:
                 self.tasks.pop()
                 return self.apply_next_action(controller)
 
-            import matplotlib.pyplot as plt
+            # import matplotlib.pyplot as plt
             # print(rotation_offset * 180 / np.pi)
             # plt.imshow(piece.img)
             # plt.show()

@@ -127,7 +127,7 @@ class Controller:
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
                                   [-.1, 4.4],
-                                  [-0.5, -3.3],])
+                                  [-0.5, -3.5],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
@@ -152,7 +152,7 @@ class Controller:
         self.segments = []
 
         # Point where the robot resets to
-        self.reset_pos = np.array([ 0.06, -0.11, 0.15, 0, 0]).reshape((5,1))
+        self.reset_pos = np.array([ 0.06, -0.11, 0.18, 0, 0]).reshape((5,1))
         self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
 
         # Subscriber which listens to the motors' positions and velocities

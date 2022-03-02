@@ -214,13 +214,14 @@ class Detector:
         all_corners = np.array(all_corners).reshape((-1,2))
 
         if len(all_corners) != 16:
+            rospy.loginfo(all_corners)
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
-        world1 = np.array([-.3777, -.1043])
-        world2 = np.array([.1535, 0.2953])
-        world3 = np.array([-0.3930, 0.2706])
-        world4 = np.array([0.1746, -0.0963])
+        world1 = np.array([-.3747, -.0854])
+        world2 = np.array([.1594, 0.3125])
+        world3 = np.array([-0.3900, 0.2891])
+        world4 = np.array([0.1781, -0.0788])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
@@ -233,10 +234,12 @@ class Detector:
         screen4 = np.mean(box4, axis=0)
 
         ids = ids.flatten()
-        screens = np.float32([screen1, screen2, screen3, screen4])[ids]
+        ids_reorder = np.zeros_like(ids)
+        for i in range(len(ids)):
+            ids_reorder[i] = np.where(ids == i)[0]
+        screens = np.float32([screen1, screen2, screen3, screen4])[ids_reorder]
         worlds = np.float32([world1, world2, world3, world4])
         self.transform = cv2.getPerspectiveTransform(screens, worlds)
-        print(screens)
 
     def world_to_screen(self, x, y):
         raise NotImplementedError()

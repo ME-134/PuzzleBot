@@ -27,6 +27,8 @@
 	type="usb_cam_node"
 	name="usb_cam">
     <rosparam>
+      image_width: 1920
+      image_height: 1080
       camera_name: "logitech"
       pixel_format: "yuyv"
     </rosparam>

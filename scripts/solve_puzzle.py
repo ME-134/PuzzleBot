@@ -186,7 +186,7 @@ class Controller:
 
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
         # piece_origin and piece_destination given in pixel space
-        rospy.loginfo("[Controller] Moving piece from {piece_origin} to {piece_destination}")
+        rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         
         if jiggle:
             pickup_height = 0
@@ -352,22 +352,8 @@ class Controller:
         #print(self.state)
 
         if self.state == State.idle:
-            # FIND NEW PUZZLE PIECE
-            x, y = self.detector.get_random_piece_center()
-            x, y = self.detector.screen_to_world(x, y)
-            pgoal = np.array([x, y, 0.02, 0, 0]).reshape((5, 1))
-            hover = pgoal+np.array([0, 0, .06, 0, 0]).reshape((5, 1))
-            hover_theta = self.ikin(hover, self.mean_theta)
-            if hover_theta is None:
-                return
-            rospy.loginfo("chose location:" + str(pgoal))
-            rospy.loginfo("goal theta: " + str(hover_theta))
-            spline1 = CubicSpline(self.lasttheta, self.lastthetadot, hover_theta, 0, 3)
-            goal_theta = self.ikin(pgoal, hover_theta)
-            spline2 = CubicSpline(hover_theta, 0, goal_theta, 0, 3)
-            spline3 = CubicSpline(goal_theta, 0, hover_theta, 0, 3)
-            self.change_segments([spline1, spline2, spline3])
-            self.state = State.pickup
+            theta = self.lasttheta
+            thetadot  = theta * 0
 
         elif self.state == State.grav:
             cmdmsg = JointState()
@@ -395,6 +381,11 @@ class Controller:
                 status = Status.Ok
                 self.solver.notify_action_completed(status)
                 self.solver.apply_next_action(self)
+
+                # Sometimes the above steps can take a while
+                # so this line prevents the robot from suddenly jerking
+                self.t0 = rospy.Time.now().to_sec()
+                return
 
         #print(self.segments[self.index].space())
         # Decide what to do based on the space.
@@ -497,12 +488,11 @@ if __name__ == "__main__":
     timing_pub = rospy.Publisher("/update_time", Duration, queue_size=10)
 
     # Run the servo loop until shutdown (killed or ctrl-C'ed).
-    starttime = rospy.Time.now()
     while not rospy.is_shutdown():
 
         # Current time (since start)
         servotime = rospy.Time.now()
-        t = (servotime - starttime).to_sec()
+        t = servotime.to_sec()
 
         # Update the controller.
         start = time.time()

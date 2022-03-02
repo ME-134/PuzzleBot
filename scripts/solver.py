@@ -116,16 +116,22 @@ class Solver:
 
             for piece in self.piece_list:
                 # Make sure piece is not already separated
-                if np.all(piece.get_center() > self.separated_loc - np.array([5, 5])):
-                    continue
+                #if np.all(piece.get_center() > self.separated_loc - np.array([5, 5])):
+                #    continue
 
                 # Find piece which is not rotated correctly or is in the center
-                rotation_offset = -1 * self.get_rotation_offset(piece.img)
+                rotation_offset = self.get_rotation_offset(piece.img)
+                ### TEMP
+                rotation_offset *= -1
+                rotation_offset = np.fmod(rotation_offset, np.pi/2)
+
+                print("rotation: ", rotation_offset)
+                ### END TEMP
                 threshold_rotation_error = 0.05
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
-                if piece.overlaps_with_region(self.get_puzzle_region()):
-                    break
+                # if piece.overlaps_with_region(self.get_puzzle_region()):
+                #     break
             else:
                 # Nothing more to do in the current task!
                 rospy.logwarn("[Solver] No pieces left to separate, continuing to next solver task.")
@@ -213,15 +219,18 @@ class Solver:
         to put a piece there.
         '''
         # This is how we want our piece to end up
-        dummy_piece = piece.copy()
-        dummy_piece.rotate(rotation)
+        dummy_piece_copy = piece.copy()
+        dummy_piece_copy.rotate(rotation)
 
         free_space = self.detector.free_space_img
 
         # Scan the whole area until we find a suitable free spot for our piece
         start_x, start_y = 50, 50
-        for x in range(start_x, 640, 5):
-            for y in range(start_y, 480, 5):
+        for x in range(start_x, 640-50, 15):
+            for y in range(start_y, 480-50, 15):
+
+                # Create a copy because sometimes moving the piece makes the edges chopped off.
+                dummy_piece = dummy_piece_copy.copy()
                 dummy_piece.move_to(x, y)
 
                 # Publish our plans
@@ -230,13 +239,13 @@ class Solver:
                 plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
                 plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
                 self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
-
+                
                 # Piece cannot go to the area we designate for the solved puzzle
                 if dummy_piece.overlaps_with_region(self.get_puzzle_region()):
                     break # assume puzzle region is in the bottom-right
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice()]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=5)]):
                     plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, -20], dtype=np.uint8)
                     self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
                     return np.array([x, y])

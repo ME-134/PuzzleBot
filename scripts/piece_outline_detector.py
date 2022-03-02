@@ -70,7 +70,6 @@ class PuzzlePiece:
         # theta in radians
         center = (self.x_center, self.y_center)
         rotate_matrix = cv2.getRotationMatrix2D(center=center, angle=theta*180/np.pi, scale=1)
-        print(type(self.mask))
         new_mask = cv2.warpAffine(self.mask, rotate_matrix, self.mask.shape[::-1])
         self.update_mask(new_mask)
 
@@ -127,7 +126,7 @@ class PuzzlePiece:
                        (self.xmin, self.ymin+self.height),
                        (self.xmin+self.width, self.ymin),
                        (self.xmin+self.width, self.ymin+self.height)]:
-            if (xmin < x < xmax) and (ymin < x < ymax):
+            if (xmin < x < xmax) and (ymin < y < ymax):
                 return True
         return False
 #

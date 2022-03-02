@@ -24,27 +24,55 @@ from nav_msgs.msg      import OccupancyGrid, MapMetaData
 from geometry_msgs.msg import Pose, Point, Quaternion
 
 class PuzzlePiece:
-    def __init__(self, bbox, centroid):
-        self.x_center, self.y_center = centroid
-        self.xmin, self.ymin, self.width, self.height, self.area = bbox
+    # def __init__(self, bbox, centroid):
+    #     self.x_center, self.y_center = centroid
+    #     self.xmin, self.ymin, self.width, self.height, self.area = bbox
 
+    def __init__(self, mask):
+        self.update_mask(mask)
+        
         self.color = tuple(map(int, np.random.random(size=3) * 255))
 
         self.matched = True
         self.removed = False
 
         self.img = None
-
-    def create_dummy_copy(self):
-        bbox = (self.xmin, self.ymin, self.width, self.height, self.area)
-        centroid = (self.x_center, self.y_center)
-        return PuzzlePiece(bbox, centroid)
     
+    def update_mask(self, mask):
+        ys, xs = np.where(mask)
+        self.xmin, self.xmax = np.min(xs), np.max(xs)
+        self.ymin, self.ymax = np.min(ys), np.max(ys)
+        self.area   = np.sum(mask)
+        self.width  = self.xmax - self.xmin
+        self.height = self.ymax - self.ymin
+        self.x_center = np.mean(xs).astype(int)
+        self.y_center = np.mean(ys).astype(int)
+
+        self.mask = mask.astype(np.float32)
+
+    def copy(self):
+        copy = PuzzlePiece(self.mask.copy())
+        copy.img = self.img
+        return copy
+
     def move_to(self, new_x_center, new_y_center):
-        self.xmin += new_x_center - self.x_center
-        self.ymin += new_y_center - self.y_center
-        self.x_center = new_x_center
-        self.y_center = new_y_center
+        dx = new_x_center - self.x_center
+        dy = new_y_center - self.y_center
+
+        M = np.float32([
+            [1, 0, dx],
+            [0, 1, dy]
+        ])
+        new_mask = cv2.warpAffine(self.mask, M, self.mask.shape[::-1])
+        self.update_mask(new_mask)
+
+    def rotate(self, theta):
+        # theta in radians
+        center = (self.x_center, self.y_center)
+        rotate_matrix = cv2.getRotationMatrix2D(center=center, angle=theta*180/np.pi, scale=1)
+        print(type(self.mask))
+        new_mask = cv2.warpAffine(self.mask, rotate_matrix, self.mask.shape[::-1])
+        self.update_mask(new_mask)
 
     def bounds_slice(self, padding=0):
         return (slice(max(0, self.ymin - padding), self.ymin+self.height+padding, 1), 
@@ -53,10 +81,6 @@ class PuzzlePiece:
     def get_center(self):
         return (self.x_center, self.y_center)
 
-    def set_center(self, x, y):
-        self.x_center = x
-        self.y_center = y
-
     def set_img(self, img):
         self.img = img
 
@@ -64,7 +88,7 @@ class PuzzlePiece:
         return self.color
 
     def __repr__(self):
-        return f"<Puzzle Piece at (x={self.x_center}, y={self.y_center}) with color={self.color}>"
+        return f"<Puzzle Piece at (x={self.x_center}, y={self.y_center}), width={self.width}, height={self.height} with color={self.color}>"
 
     def matches(self, other):
         return (self.x_center - other.x_center) ** 2 + (self.y_center - other.y_center) ** 2 < 10**2
@@ -182,13 +206,11 @@ class Detector:
         image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
 
         (all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
-        rospy.loginfo(all_corners)
         if not all_corners:
             raise RuntimeError("Aruco markers not found!!")
 
         # Undistort corners
         all_corners = np.array(all_corners).reshape((-1,2))
-        print(all_corners)
         all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
 
@@ -323,14 +345,6 @@ class Detector:
         for piece in self.pieces:
             piece.matched = False
 
-        def correct_stat(marker_num):
-            mask = markers == marker_num
-            ys, xs = np.where(mask)
-            xmin, xmax = np.min(xs), np.max(xs)
-            ymin, ymax = np.min(ys), np.max(ys)
-            area = np.sum(mask)
-            return (xmin, ymin, xmax-xmin, ymax-ymin, area)
-
         for i in range(len(centroids)):
             # Background
             if i == 0:
@@ -339,22 +353,20 @@ class Detector:
             if i+1 not in markers:
                 continue
 
-            stat = correct_stat(i+1)
-            centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            piece = PuzzlePiece(stat, centroid)
+            piece_mask = (markers == i+1)
+            piece = PuzzlePiece(piece_mask)
             #if piece.is_valid():
             if True:
                 # First try to match the piece
                 for existing_piece in self.pieces:
                     if not existing_piece.matched:
                         if existing_piece.matches(piece):
-                            existing_piece.set_center(centroid[0], centroid[1])
+                            existing_piece.update_mask(piece_mask)
                             existing_piece.matched = True
                             piece = existing_piece
                             break
                 pieces.append(piece)
 
-                padding = 30
                 cutout_img = img_orig[piece.bounds_slice(padding=30)].copy()
                 piece.set_img(cutout_img)
 

@@ -247,6 +247,7 @@ class Solver:
                 # Piece can only go to where there are no other pieces already
                 elif np.all(free_space[dummy_piece.bounds_slice(padding=5)]):
                     plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, -20], dtype=np.uint8)
+                    plan_img[dummy_piece.mask.astype(bool)] = np.array([30, 200, 30], dtype=np.uint8)
                     self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
                     return np.array([x, y])
         

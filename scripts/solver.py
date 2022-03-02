@@ -4,6 +4,8 @@ import enum
 
 import rospy
 
+from sensor_msgs.msg   import Image
+
 import numpy as np
 
 from thomas_detector import ThomasDetector, ThomasPuzzlePiece
@@ -23,7 +25,8 @@ class Status(enum.Enum):
 
 class Solver:
     def __init__(self, detector):
-        pass
+
+        self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
 
         # Stack
         self.tasks = []
@@ -134,7 +137,7 @@ class Solver:
             # plt.imshow(piece.img)
             # plt.show()
             piece_origin = piece.get_center()
-            piece_destination = self.find_available_piece_spot()
+            piece_destination = self.find_available_piece_spot(piece)
             print(piece_origin, piece_destination)
             controller.move_piece(piece_origin, piece_destination, turn=rotation_offset)
             return
@@ -198,14 +201,44 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (100, 100, 300, 300)
+        return (150, 150, 640, 480)
+    
+    def get_puzzle_region_as_slice(self):
+        xmin, ymin, xmax, ymax = self.get_puzzle_region()
+        return (slice(xmin, xmax), slice(ymin, ymax))
 
-    def find_available_piece_spot(self):
+    def find_available_piece_spot(self, piece):
         '''
         Return a location on the border of the playground which has enough free space
         to put a piece there.
         '''
         # TODO
+        free_space = self.detector.free_space_img
+        start_x, start_y = 70, 70
+        for y in range(start_y, 480, 10):
+            dummy_piece = piece.create_dummy_copy()
+            dummy_piece.move_to(start_x, y)
+
+            print("considering: ", start_x, y)
+            plan_img = self.detector.latestImage.copy()
+            plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 20], dtype=np.uint8)
+            plan_img[piece.bounds_slice()] += np.array([20, 0, 0], dtype=np.uint8)
+
+            plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
+            self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
+
+            if dummy_piece.overlaps_with_region(self.get_puzzle_region()):
+                print("overlaps with region")
+                continue
+
+            elif np.all(free_space[dummy_piece.bounds_slice()]):
+                print("found: ", start_x, y)
+                plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, -20], dtype=np.uint8)
+                self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
+                return np.array([start_x, y])
+            
+            print("not free")
+
         n = self.pieces_cleared
         
         return self.separated_loc + [self.separated_spacing*(n%5), self.separated_spacing*(n//5)]

@@ -35,6 +35,21 @@ class PuzzlePiece:
 
         self.img = None
 
+    def create_dummy_copy(self):
+        bbox = (self.xmin, self.ymin, self.width, self.height, self.area)
+        centroid = (self.x_center, self.y_center)
+        return PuzzlePiece(bbox, centroid)
+    
+    def move_to(self, new_x_center, new_y_center):
+        self.xmin += new_x_center - self.x_center
+        self.ymin += new_y_center - self.y_center
+        self.x_center = new_x_center
+        self.y_center = new_y_center
+
+    def bounds_slice(self, padding=0):
+        return (slice(max(0, self.ymin - padding), self.ymin+self.height+padding, 1), 
+                slice(max(0, self.xmin - padding), self.xmin+self.width+padding, 1))
+
     def get_center(self):
         return (self.x_center, self.y_center)
 
@@ -81,13 +96,13 @@ class PuzzlePiece:
     def overlaps_with_region(self, region):
         xmin, ymin, xmax, ymax = region
         for (x, y) in [(xmin, ymin), (xmin, ymax), (xmax, ymin), (xmax, ymax)]:
-            if (self.x_center < x < self.x_center + self.width) and \
-               (self.y_center < y < self.y_center + self.height):
+            if (self.xmin < x < self.xmin + self.width) and \
+               (self.xmin < y < self.xmin + self.height):
                 return True
-        for (x, y) in [(self.x_center, self.y_center),
-                       (self.x_center, self.y_center+self.height),
-                       (self.x_center+self.width, self.y_center),
-                       (self.x_center+self.width, self.y_center+self.height)]:
+        for (x, y) in [(self.xmin, self.ymin),
+                       (self.xmin, self.ymin+self.height),
+                       (self.xmin+self.width, self.ymin),
+                       (self.xmin+self.width, self.ymin+self.height)]:
             if (xmin < x < xmax) and (ymin < x < ymax):
                 return True
         return False
@@ -123,8 +138,8 @@ class Detector:
 
         # Publish to the processed image.  Store up to three images,
         # in case any clients need a little more time.
-        self.pub_bluedots = rospy.Publisher("/detector/pieces", Image, queue_size=3)
-        self.pub_binary   = rospy.Publisher("/detector/blocks", Image, queue_size=3)
+        self.pub_bluedots  = rospy.Publisher("/detector/pieces", Image, queue_size=3)
+        self.pub_binary    = rospy.Publisher("/detector/blocks", Image, queue_size=3)
 
         # If True, run detector on every new image
         # If False, only run detector on snap() or /detector/snap
@@ -136,6 +151,8 @@ class Detector:
         # List of puzzle piece objects
         # TODO: Lock?
         self.pieces = list()
+
+        self.free_space_img = None
 
         # ARUCO
         self.arucoDict   = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_50)
@@ -155,9 +172,10 @@ class Detector:
             while self.latestImage is None:
                 pass
             rospy.loginfo("[Detector] Recieved image from camera")
-        bluedots_img, binary_img = self.process(self.latestImage)
+        bluedots_img, binary_img, free_space_img = self.process(self.latestImage)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
+        self.free_space_img = free_space_img
 
     def init_aruco(self):
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
@@ -305,8 +323,15 @@ class Detector:
         for piece in self.pieces:
             piece.matched = False
 
-        #print(stats)
-        for i, stat in enumerate(stats):
+        def correct_stat(marker_num):
+            mask = markers == marker_num
+            ys, xs = np.where(mask)
+            xmin, xmax = np.min(xs), np.max(xs)
+            ymin, ymax = np.min(ys), np.max(ys)
+            area = np.sum(mask)
+            return (xmin, ymin, xmax-xmin, ymax-ymin, area)
+
+        for i in range(len(centroids)):
             # Background
             if i == 0:
                 continue
@@ -314,9 +339,9 @@ class Detector:
             if i+1 not in markers:
                 continue
 
-            xmin, ymin, width, height, area = tuple(stat)
+            stat = correct_stat(i+1)
             centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            piece = PuzzlePiece(tuple(stat), centroid)
+            piece = PuzzlePiece(stat, centroid)
             #if piece.is_valid():
             if True:
                 # First try to match the piece
@@ -330,8 +355,7 @@ class Detector:
                 pieces.append(piece)
 
                 padding = 30
-                cutout_img = img_orig[max(ymin-padding, 0):ymin+height+padding, 
-                                      max(xmin-padding, 0):xmin+height+padding].copy()
+                cutout_img = img_orig[piece.bounds_slice(padding=30)].copy()
                 piece.set_img(cutout_img)
 
         # Show a circle over each detected piece
@@ -343,11 +367,12 @@ class Detector:
         #markers[res != 0] = 255
 
         # publish map
-        self.publish_map_msg(binary[::-1])
+        self.publish_map_msg(binary[::-1], force=not self.continuous)
 
         self.pieces = pieces
 
-        return img, markers
+        table = 255 - blocks
+        return img, markers, table
 
 #
 #  Main Code

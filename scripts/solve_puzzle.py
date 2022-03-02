@@ -120,10 +120,8 @@ class Controller:
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
-        self.state = 0
+        self.state = State.idle
         self.index = 0
-        self.t0    = 0.0
-        self.last_t = 0.0
         self.sim = sim
 
         self.pump_value = 0
@@ -146,9 +144,6 @@ class Controller:
         self.reset_pos = np.array([ 0.06, -0.11, 0.15, 0, 0]).reshape((5,1))
         self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
 
-        # Add spline which goes to the correct starting position
-        self.reset(duration = 4)
-
         # Subscriber which listens to the motors' positions and velocities
         # Used for touch detection and gravity compensation
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
@@ -159,6 +154,11 @@ class Controller:
         self.detector.init_aruco()
         self.solver = Solver(self.detector)
 
+        self.last_t = None
+        self.t0     = None
+
+        # Ask the solver for the first thing to do
+        self.solver.apply_next_action(self)
 
     def change_segments(self, segments):
         self.segments = segments
@@ -346,7 +346,9 @@ class Controller:
 
     # Update is called every 10ms!
     def update(self, t):
-        dt = t - self.last_t
+        if self.t0 is None:
+            self.t0 = t
+        
         self.last_t = t
 
         #print(self.state)

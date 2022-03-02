@@ -187,7 +187,7 @@ class Detector:
             self.snap()
 
     def save_img(self, msg):
-        self.latestImage = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        self.latestImage = self.crop_raw(self.bridge.imgmsg_to_cv2(msg, "bgr8"))
         
     def snap(self):
         if self.latestImage is None:
@@ -200,9 +200,13 @@ class Detector:
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
         self.free_space_img = free_space_img
 
+    def crop_raw(self, img):
+        # Crops unnecessary parts of the image out
+        return img[:, 100:-100, :]
+
     def init_aruco(self):
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
-        image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
+        image = self.crop_raw(self.bridge.imgmsg_to_cv2(image_msg, "bgr8"))
 
         (all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
         if not all_corners:

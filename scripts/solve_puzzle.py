@@ -43,16 +43,22 @@ class FuncSegment:
     # Can be added to segments list
     def __init__(self, func):
         self.func = func
+        self.called = False
 
     def duration(self):
-        return .05
+        if self.called:
+            return 0
+        else:
+            return np.inf
 
     # Return the segment's space
     def space(self):
         return 'Func'
 
     def __call__(self):
-        self.func()
+        if not self.called:
+            self.func()
+            self.called = True
 
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
@@ -197,7 +203,6 @@ class Controller:
             hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
 
             if space == 'Joint':
-                # ASK Hayama: why not self.lasttheta?
                 hover_theta = self.ikin(hover, self.mean_theta)
                 rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
                 goal_theta = self.ikin(pgoal, hover_theta)
@@ -382,12 +387,6 @@ class Controller:
         if (t - self.t0 >= dur):
             self.index = (self.index + 1)
             self.t0 = t
-
-            # if self.state == State.pickup:
-            #     if self.index == 2 and not self.pump_value:
-            #         self.set_pump(True)
-            #     elif self.index == 6 and self.pump_value:
-            #         self.set_pump(False)
 
             if self.index >= len(self.segments):
                 self.state = State.idle

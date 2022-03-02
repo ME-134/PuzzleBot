@@ -55,6 +55,7 @@ class Solver:
         if curr_task == SolverTask.GetView:
             # The camera should have a clear view of the pieces now.
             if status.ok():
+                self.detector.snap()
                 self.piece_list = self.detector.pieces.copy()
                 self.tasks.pop()
             else:

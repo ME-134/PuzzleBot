@@ -18,19 +18,15 @@ import random
 
 import os
 
-from sensor_msgs.msg  import Image, CameraInfo
-from nav_msgs.msg import OccupancyGrid, MapMetaData
+from std_msgs.msg      import Bool
+from sensor_msgs.msg   import Image, CameraInfo
+from nav_msgs.msg      import OccupancyGrid, MapMetaData
 from geometry_msgs.msg import Pose, Point, Quaternion
 
 class PuzzlePiece:
-    def __init__(self, x, y, w, h, area, xmin, ymin):
-        self.x = x
-        self.y = y
-        self.width  = w
-        self.height = h
-        self.area   = area
-        self.xmin = xmin
-        self.ymin = ymin
+    def __init__(self, bbox, centroid):
+        self.x_center, self.y_center = centroid
+        self.xmin, self.ymin, self.width, self.height, self.area = bbox
 
         self.color = tuple(map(int, np.random.random(size=3) * 255))
 
@@ -39,15 +35,12 @@ class PuzzlePiece:
 
         self.img = None
 
-    def get_location(self):
-        return (self.x, self.y)
-
-    def set_location(self, x, y):
-        self.x = x
-        self.y = y
-
     def get_center(self):
-        return self.get_location()
+        return (self.x_center, self.y_center)
+
+    def set_center(self, x, y):
+        self.x_center = x
+        self.y_center = y
 
     def set_img(self, img):
         self.img = img
@@ -56,10 +49,10 @@ class PuzzlePiece:
         return self.color
 
     def __repr__(self):
-        return f"<Puzzle Piece at (x={self.x}, y={self.y}) with color={self.color}>"
+        return f"<Puzzle Piece at (x={self.x_center}, y={self.y_center}) with color={self.color}>"
 
     def matches(self, other):
-        return (self.x - other.x) ** 2 + (self.y - other.y) ** 2 < 10**2
+        return (self.x_center - other.x_center) ** 2 + (self.y_center - other.y_center) ** 2 < 10**2
 
     def is_valid(self):
         if not (2000 < self.area):
@@ -80,20 +73,21 @@ class PuzzlePiece:
 
     def fully_contained_in_region(self, region):
         xmin, ymin, xmax, ymax = region
-        return (xmin < self.x < xmax) and \
-               (xmin < self.x + self.width < xmax) and \
-               (ymin < self.y < ymax) and \
-               (ymin < self.y + self.height < ymax)
+        return (xmin < self.x_center < xmax) and \
+               (xmin < self.x_center + self.width < xmax) and \
+               (ymin < self.y_center < ymax) and \
+               (ymin < self.y_center + self.height < ymax)
 
     def overlaps_with_region(self, region):
         xmin, ymin, xmax, ymax = region
         for (x, y) in [(xmin, ymin), (xmin, ymax), (xmax, ymin), (xmax, ymax)]:
-            if (self.x < x < self.x + self.width) and (self.y < y < self.y + self.height):
+            if (self.x_center < x < self.x_center + self.width) and \
+               (self.y_center < y < self.y_center + self.height):
                 return True
-        for (x, y) in [(self.x, self.y),
-                       (self.x, self.y+self.height),
-                       (self.x+self.width, self.y),
-                       (self.x+self.width, self.y+self.height)]:
+        for (x, y) in [(self.x_center, self.y_center),
+                       (self.x_center, self.y_center+self.height),
+                       (self.x_center+self.width, self.y_center),
+                       (self.x_center+self.width, self.y_center+self.height)]:
             if (xmin < x < xmax) and (ymin < x < ymax):
                 return True
         return False
@@ -101,7 +95,7 @@ class PuzzlePiece:
 #  Detector Node Class
 #
 class Detector:
-    def __init__(self):
+    def __init__(self, continuous=False):
         # Grab an instance of the camera data.
         rospy.loginfo("Waiting for camera info...")
         msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo)
@@ -112,9 +106,12 @@ class Detector:
         # Subscribe to the incoming image topic.  Using a queue size
         # of one means only the most recent message is stored for the
         # next subscriber callback.
-        #rospy.init_node('detector')
-        self.imgsub = rospy.Subscriber("/usb_cam/image_raw", Image, self.getPiecesesAndPublish, queue_size=1)
+        self.imgsub = rospy.Subscriber("/usb_cam/image_raw", Image, self.img_sub_callback, queue_size=1)
 
+        # Takes the most recent image and runs the piece detector on it
+        self.snapsub = rospy.Subscriber("/detector/snap", Bool, self.save_img, queue_size=1)
+
+        # Binary map publisher for rviz
         self.map_pub = rospy.Publisher('map', OccupancyGrid, queue_size=1)
         self.map_data_pub = rospy.Publisher('map_metadata',
                                              MapMetaData, queue_size=1)
@@ -124,24 +121,41 @@ class Detector:
         # Set up the OpenCV Bridge.
         self.bridge = cv_bridge.CvBridge()
 
-
         # Publish to the processed image.  Store up to three images,
         # in case any clients need a little more time.
         self.pub_bluedots = rospy.Publisher("/detector/pieces", Image, queue_size=3)
         self.pub_binary   = rospy.Publisher("/detector/blocks", Image, queue_size=3)
 
-        self.piece_centers = list()
+        # If True, run detector on every new image
+        # If False, only run detector on snap() or /detector/snap
+        self.continuous = continuous
+        
+        # TODO: Lock?
+        self.latestImage = None
+        
+        # List of puzzle piece objects
+        # TODO: Lock?
         self.pieces = list()
 
         # ARUCO
         self.arucoDict   = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_50)
         self.arucoParams = cv2.aruco.DetectorParameters_create()
-        self.latestImage = None
 
-    def getPiecesesAndPublish(self, msg):
-        img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        self.latestImage = img
-        bluedots_img, binary_img = self.process(img)
+    def img_sub_callback(self, msg):
+        self.save_img(msg)
+        if self.continuous:
+            self.snap()
+
+    def save_img(self, msg):
+        self.latestImage = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        
+    def snap(self):
+        if self.latestImage is None:
+            rospy.logwarn("[Detector] Waiting for image from camera...")
+            while self.latestImage is None:
+                pass
+            rospy.loginfo("[Detector] Recieved image from camera")
+        bluedots_img, binary_img = self.process(self.latestImage)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
 
@@ -185,58 +199,16 @@ class Detector:
         self.transform = cv2.getPerspectiveTransform(screens, worlds)
         print(screens)
 
-        # Box 1 is lower-left
-        if screen2[0] < screen1[0]:
-            screen1, screen2 = screen2, screen1
-        #print(screen1, screen2)
-
-        #screen1 = (box1])
-        #screen2 = (all_corners[0][0])
-
-
-        '''A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
-        points = np.array(
-            [[1,1]
-            ]
-        )
-        M, _, _, _ = np.linalg.lstsq(A, points, rcond=None)
-        self.M = M.transpose()
-        self.M = cv2.getPerspectiveTransform(all_corners, points)'''
-
-        box = all_corners[:4]
-        xmin = np.min(box[:, 0])
-        xmax = np.max(box[:, 0])
-        ymin = np.min(box[:, 1])
-        ymax = np.max(box[:, 1])
-        #rospy.loginfo("xmin, xmax, ymin, ymax: ", xmin, xmax, ymin, ymax)
-
-        #print(screen1, screen2)
-        #print((world2[0] - world1[0]))
-        #print((world2[1] - world1[1]))
-
-        self.xb = (screen2[0] - screen1[0]) / (world2[0] - world1[0])
-        self.xa = screen1[0] - self.xb * (world1[0])
-        self.yb = (screen2[1] - screen1[1]) / (world2[1] - world1[1])#* 0.16 / 0.14
-        self.ya = screen1[1] - self.yb * (world1[1])
-
     def world_to_screen(self, x, y):
-        #return self.a + x * self.b
-        return (self.xa + x * self.xb, self.ya + y * self.yb)
+        raise NotImplementedError()
 
     def screen_to_world(self, x, y):
         coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
-        #points = cv2.perspectiveTransform(coords, self.M)
-        #x, y = coords[0,0,:]
         x, y = cv2.perspectiveTransform(coords, self.transform)[0, 0]
         return (x, y)
-        #return ((x - self.xa) / self.xb, (y - self.ya) / self.yb)
-
-    def get_random_piece_center(self):
-        print("piece centers:", self.piece_centers)
-        return random.choice(self.piece_centers)
 
     def get_random_piece(self):
-        print("pieces centers:", self.pieces)
+        print("pieces:", self.pieces)
         return random.choice(self.pieces)
 
     def publish_map_msg(self, img, force=False):
@@ -327,7 +299,6 @@ class Detector:
 
         #return img, markers
 
-        piece_centers = list()
         pieces = list()
 
         # Unmatch all pieces
@@ -345,49 +316,37 @@ class Detector:
 
             xmin, ymin, width, height, area = tuple(stat)
             centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            piece = PuzzlePiece(centroid[0], centroid[1], width, height, area, xmin, ymin)
+            piece = PuzzlePiece(tuple(stat), centroid)
             #if piece.is_valid():
             if True:
                 # First try to match the piece
                 for existing_piece in self.pieces:
                     if not existing_piece.matched:
                         if existing_piece.matches(piece):
-                            existing_piece.set_location(centroid[0], centroid[1])
+                            existing_piece.set_center(centroid[0], centroid[1])
                             existing_piece.matched = True
                             piece = existing_piece
                             break
                 pieces.append(piece)
 
-
-                cutout_img = img_orig[max(ymin-30,0):ymin+height+30, max(xmin-30,0):xmin+height+30].copy()
+                padding = 30
+                cutout_img = img_orig[max(ymin-padding, 0):ymin+height+padding, 
+                                      max(xmin-padding, 0):xmin+height+padding].copy()
                 piece.set_img(cutout_img)
 
-
+        # Show a circle over each detected piece
         for piece in pieces:
             r = int(np.sqrt(piece.area) / 4) + 1
             color = piece.get_color()
-            cv2.circle(img, piece.get_location(), r, color, -1)
-            piece_centers.append(piece.get_location())
+            cv2.circle(img, piece.get_center(), r, color, -1)
 
         #markers[res != 0] = 255
 
         # publish map
         self.publish_map_msg(binary[::-1])
 
-        '''
-        from pathlib import Path
-        mappath = Path(__file__) / '../map/map.png'
-        #print(mappath, mappath.resolve())
-        mappath = '/home/me134/me134ws/src/HW1/map/map.png'
-        if np.random.rand() < 0.01:
-            cv2.imwrite(mappath, blocks)
-        '''
-
-        self.piece_centers = piece_centers
         self.pieces = pieces
 
-        #        print(self.screen_to_world(self.piece_centers[0][0],self.piece_centers[0][1]))
-        #print(self.xb, self.yb, 1/self.xb, 1/self.yb)
         return img, markers
 
 #

@@ -23,6 +23,17 @@ from piece_outline_detector import Detector
 from solver import Solver, Status
 import enum
 
+class GotoSpline(CubicSpline):
+    # Use zero initial/final velocities (of same size as positions).
+    def __init__(self, p0, pf, **kwargs):
+        min_time = 1
+        speed = 1 # rad per sec
+        max_diff = np.max(np.abs(p0 - pf))
+        time = max_diff / speed + min_time
+        assert time >= min_time
+        CubicSpline.__init__(self, p0, 0*p0, pf, 0*pf, time, **kwargs)
+
+
 class State(enum.Enum):
     idle   = 0
     grav   = 1
@@ -221,14 +232,14 @@ class Controller:
         origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
         dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
         splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
-        splines.append(CubicSpline(origin_hover, 0, origin_goal, 0, 1, space=space))
+        splines.append(GotoSpline(origin_hover, origin_goal, space=space))
         splines.append(FuncSegment(lambda: self.set_pump(True)))
-        splines.append(CubicSpline(origin_goal, 0, origin_goal, 0, 0.5, space=space))
-        splines.append(CubicSpline(origin_goal, 0, origin_hover, 0, 1, space=space))
-        splines.append(CubicSpline(origin_hover, 0, dest_hover, 0, 3, space=space))
-        splines.append(CubicSpline(dest_hover, 0, dest_goal, 0, 1, space=space))
+        splines.append(GotoSpline(origin_goal, origin_goal, space=space))
+        splines.append(GotoSpline(origin_goal, origin_hover, space=space))
+        splines.append(GotoSpline(origin_hover, dest_hover, space=space))
+        splines.append(GotoSpline(dest_hover, dest_goal, space=space))
         splines.append(FuncSegment(lambda: self.set_pump(False)))
-        splines.append(CubicSpline(dest_goal, 0, dest_goal, 0, 0.7, space=space))
+        splines.append(GotoSpline(dest_goal, dest_goal, space=space))
         if jiggle:
             rot = np.array([0, 0, 0, 0, -.5])
             splines.append(CubicSpline(dest_goal, 0, dest_goal + rot, 0, 0.5, space=space))

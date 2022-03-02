@@ -217,10 +217,10 @@ class Detector:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
-        world1 = np.array([-.3535, -.0902])
-        world2 = np.array([.1238, 0.2923])
-        world3 = np.array([-0.3619, 0.2574])
-        world4 = np.array([0.1464, -0.0610])
+        world1 = np.array([-.3777, -.1043])
+        world2 = np.array([.1535, 0.2953])
+        world3 = np.array([-0.3930, 0.2706])
+        world4 = np.array([0.1746, -0.0963])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]

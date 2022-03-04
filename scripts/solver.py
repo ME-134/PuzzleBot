@@ -145,7 +145,8 @@ class Solver:
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
             print(piece_origin, piece_destination)
-            controller.move_piece(piece_origin, piece_destination, turn=rotation_offset)
+            #piece_destination = (300, 300)
+            controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
             return
 
         elif curr_task == SolverTask.PutPiecesTogether:

@@ -246,23 +246,36 @@ class Controller:
         splines.append(GotoSpline(origin_goal, origin_goal, space=space))
         splines.append(GotoSpline(origin_goal, origin_hover, space=space))
         splines.append(GotoSpline(origin_hover, dest_hover, space=space))
-        splines.append(GotoSpline(dest_hover, dest_goal, space=space))
-        splines.append(FuncSegment(lambda: self.set_pump(False)))
-        splines.append(GotoSpline(dest_goal, dest_goal, space=space))
         if jiggle:
             pos_offset = .005
             rot_offset = .1
+            duration = 5
             x, y = piece_destination
             x, y = self.detector.screen_to_world(x, y)
-            # print(pixel_coords, x, y)
             pgoal = np.array([x - pos_offset, y, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
             pgoal1 = np.array([x - pos_offset, y - pos_offset, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
             pgoal2 = np.array([x + pos_offset, y + pos_offset, pickup_height, turn + rot_offset, 0]).reshape((5, 1))
-            phase_offset = np.array([0, np.pi/2, 0, rot_offset, 0])
-            freq = np.array([1, 1, .5, .6, .5])
+            phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
+            freq = np.array([1, 1, .5, .6, .5]).reshape((5, 1))
 
-            SinTraj(pgoal1, pgoal2, 5, freq, offset=phase_offset, space="Cart")
-        splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
+            hover = np.array([x, y, pickup_height + hover_amount, turn, 0]).reshape((5, 1))
+            splines.append(GotoSpline(hover, pgoal, space='Task'))
+            splines.append(FuncSegment(lambda: self.set_pump(False)))
+            splines.append(GotoSpline(pgoal, pgoal, space='Task'))
+
+            jiggle_movement = SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
+            splines.append(jiggle_movement)
+            if space == 'Joint':
+                p, _ = jiggle_movement.evaluate(duration)
+                jiggle_theta = self.ikin(p, dest_goal)
+            else:
+                jiggle_theta = jiggle_movement
+            splines.append(GotoSpline(jiggle_theta, dest_hover, space=space))
+        else:
+            splines.append(GotoSpline(dest_hover, dest_goal, space=space))
+            splines.append(FuncSegment(lambda: self.set_pump(False)))
+            splines.append(GotoSpline(dest_goal, dest_goal, space=space))
+            splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
         self.change_segments(splines)
         self.state = State.pickup
 
@@ -367,7 +380,8 @@ class Controller:
 
         # If we never converge
         else:
-            raise RuntimeError(f"Unable to converge to {pgoal.flatten()}")
+            if warning:
+                raise RuntimeError(f"Unable to converge to {pgoal.flatten()}")
 
         theta = self.fix_goal_theta(theta, xgoal)
 
@@ -435,8 +449,7 @@ class Controller:
             # Dim 4 keeps end parallel with table when 0, can be used for flipping
             (p, v)    = self.segments[self.index].evaluate(t - self.t0)
 
-            rospy.loginfo("Screen coordinates of arm: ",
-                          self.detector.world_to_screen(p[0, 0], p[1, 0]))
+            #rospy.loginfo("Screen coordinates of arm: ", self.detector.world_to_screen(p[0, 0], p[1, 0]))
 
             theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
             thetadot  = np.linalg.pinv(J[:, :]) @ v

@@ -8,7 +8,7 @@ name = 'efficientnetB0'
 
 if eval:
     torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnet_b0', pretrained=True, force_reload=True)
-    model = torch.load('models/'+name+'.pt')
+    model = torch.load('C:\\Code\\CS134\\HW1\\vision\\models\\'+name+'.pt')
 else:
     model = torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnet_b0', pretrained=True, force_reload=True)
     model.classifier = nn.Linear(1280, 512, bias = True)

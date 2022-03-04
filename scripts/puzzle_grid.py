@@ -1,5 +1,5 @@
 from typing import List
-from piece_outline_detector import PuzzlePiece
+# from piece_outline_detector import PuzzlePiece
 import numpy as np
 
 def get_xy_min(arr):
@@ -10,19 +10,18 @@ def get_xy_min(arr):
     return (x, y)
 
 class PuzzleGrid():
-    def __init__(self, width_n = 5, height_n = 4, spacing = 200, offset_x = 200, offset_y = 200):
+    def __init__(self, width_n = 5, height_n = 4, spacing_height = 200, spacing_width = 200, offset_x = 200, offset_y = 200):
         self.width_n = width_n
         self.height_n = height_n
         self.occupied = np.zeros((width_n, height_n))
         self.oriented = np.zeros((width_n, height_n))
-        self.spacing = spacing
+        self.spacing_height = spacing_height
+        self.spacing_width = spacing_width
         self.offset_x = offset_x
         self.offset_y = offset_y
         self.grid_centers = np.array(
-            [[[offset_x + i*spacing, offset_y + j*spacing]for j in range(height_n)] for i in range(width_n)]
+            [[[offset_x + i*spacing_width, offset_y + j*spacing_height]for j in range(height_n)] for i in range(width_n)]
         )
-        
-
 
     '''
         Returns the x, y grid location for the first open spot, or none if there is no
@@ -48,7 +47,7 @@ class PuzzleGrid():
         else:
             return None
 
-    def process_filled(self, pieces: list[PuzzlePiece]):
+    def process_filled(self, pieces):
         for piece in pieces:
             piece_xy = np.array(piece.x, piece.y)
             norm1 = np.abs(self.grid_centers - piece_xy).sum(axis = 2)

@@ -175,7 +175,7 @@ class ThomasDetector:
                             break
                 pieces.append(piece)
 
-                cutout_img = blocks[max(ymin-100,0):ymin+height+100, max(xmin-100,0):xmin+height+100].copy()
+                cutout_img = blocks[max(ymin-20,0):ymin+height+20, max(xmin-20,0):xmin+height+20].copy()
 #                 cutout_img = img[ymin:ymin+height, xmin:xmin+height].copy()
                 piece.set_img(cutout_img)
 

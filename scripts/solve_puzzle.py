@@ -202,6 +202,11 @@ class Controller:
 
         spline = SafeCubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
+        
+    def perturb(self, loc, r=100):
+        # Moves tip in area to perturb pieces in pixel space
+        # TODO
+        pass
 
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
         # piece_origin and piece_destination given in pixel space

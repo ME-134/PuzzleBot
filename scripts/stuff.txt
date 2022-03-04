@@ -1,8 +1,16 @@
-(all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
-print(all_corners)
-all_corners = np.array(all_corners).reshape((-1,2))
-ids = np.array(ids).reshape((-1))
-A = np.append(all_corners, np.ones((len(all_corners[:, 0]), 1)), axis=1)
-coords = np.random.rand(40, 2)
-M, _, _, _ = np.linalg.lstsq(A, coords, rcond=None)
-M = M.transpose()
+
+
+
+if jiggle:
+    pos_offset = .005
+    rot_offset = .1
+    x, y = piece_destination
+    x, y = self.detector.screen_to_world(x, y)
+    # print(pixel_coords, x, y)
+    pgoal = np.array([x - pos_offset, y, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
+    pgoal1 = np.array([x - pos_offset, y - pos_offset, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
+    pgoal2 = np.array([x + pos_offset, y + pos_offset, pickup_height, turn + rot_offset, 0]).reshape((5, 1))
+    phase_offset = np.array([0, np.pi/2, 0, rot_offset, 0])
+    freq = np.array([1, 1, .5, .6, .5])
+
+    SinTraj(pgoal1, pgoal2, 5, freq, offset=phase_offset, space="Cart")

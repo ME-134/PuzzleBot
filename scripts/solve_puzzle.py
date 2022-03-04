@@ -23,7 +23,15 @@ from piece_outline_detector import Detector
 from solver import Solver, Status
 import enum
 
-class GotoSpline(CubicSpline):
+class SafeCubicSpline(CubicSpline):
+    def __init__(self, p0, v0, pf, vf, T, **kwargs):
+        Bounds.assert_theta_valid(p0)
+        Bounds.assert_theta_valid(pf)
+        Bounds.assert_thetadot_valid(v0)
+        Bounds.assert_thetadot_valid(vf)
+        CubicSpline.__init__(self, p0, v0, pf, vf, T, **kwargs)
+
+class GotoSpline(SafeCubicSpline):
     # Use zero initial/final velocities (of same size as positions).
     def __init__(self, p0, pf, **kwargs):
         min_time = 1
@@ -31,7 +39,7 @@ class GotoSpline(CubicSpline):
         max_diff = np.max(np.abs(p0 - pf))
         time = max_diff / speed + min_time
         assert time >= min_time
-        CubicSpline.__init__(self, p0, 0*p0, pf, 0*pf, time, **kwargs)
+        SafeCubicSpline.__init__(self, p0, 0*p0, pf, 0*pf, time, **kwargs)
 
 
 class State(enum.Enum):
@@ -192,7 +200,7 @@ class Controller:
         Bounds.assert_theta_valid(self.lasttheta)
         Bounds.assert_thetadot_valid(self.lastthetadot)
 
-        spline = CubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
+        spline = SafeCubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
 
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
@@ -202,14 +210,14 @@ class Controller:
         if jiggle:
             pickup_height = 0
         else:
-            pickup_height = -0.01
+            pickup_height = -0.02
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
         def get_piece_and_hover_thetas(pixel_coords, turn=0):
             x, y = pixel_coords
             x, y = self.detector.screen_to_world(x, y)
-            # print(pixel_coords, x, y)
+            print("coords: ", pixel_coords, x, y)
             pgoal = np.array([x, y, pickup_height, turn, 0]).reshape((5, 1))
             hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
 
@@ -231,7 +239,8 @@ class Controller:
         splines = list()
         origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
         dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
-        splines.append(CubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
+        splines.append(SafeCubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
+        print(origin_hover)
         splines.append(GotoSpline(origin_hover, origin_goal, space=space))
         splines.append(FuncSegment(lambda: self.set_pump(True)))
         splines.append(GotoSpline(origin_goal, origin_goal, space=space))
@@ -241,10 +250,19 @@ class Controller:
         splines.append(FuncSegment(lambda: self.set_pump(False)))
         splines.append(GotoSpline(dest_goal, dest_goal, space=space))
         if jiggle:
-            rot = np.array([0, 0, 0, 0, -.5])
-            splines.append(CubicSpline(dest_goal, 0, dest_goal + rot, 0, 0.5, space=space))
-            splines.append(CubicSpline(dest_goal + rot, 0, dest_goal - rot, 0, 1, space=space))
-        splines.append(CubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
+            pos_offset = .005
+            rot_offset = .1
+            x, y = piece_destination
+            x, y = self.detector.screen_to_world(x, y)
+            # print(pixel_coords, x, y)
+            pgoal = np.array([x - pos_offset, y, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
+            pgoal1 = np.array([x - pos_offset, y - pos_offset, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
+            pgoal2 = np.array([x + pos_offset, y + pos_offset, pickup_height, turn + rot_offset, 0]).reshape((5, 1))
+            phase_offset = np.array([0, np.pi/2, 0, rot_offset, 0])
+            freq = np.array([1, 1, .5, .6, .5])
+
+            SinTraj(pgoal1, pgoal2, 5, freq, offset=phase_offset, space="Cart")
+        splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
         self.change_segments(splines)
         self.state = State.pickup
 
@@ -291,17 +309,21 @@ class Controller:
             # This would be
             if not Bounds.is_theta_valid(goal_theta, axis=0):
                 rospy.loginfo("Corrected 0th axis of goal_theta")
+                rospy.loginfo(f"Old goal theta: {goal_theta.flatten()}")
                 goal_theta *= np.array([    1,       -1, -1, -1, 1]).reshape((5, 1))
                 goal_theta += np.array([np.pi,  np.pi/2,  0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
+                rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
 
             # Check if second axis is out of bounds, and correct
             if not Bounds.is_theta_valid(goal_theta, axis=1):
                 rospy.loginfo("Corrected 1st axis of goal_theta")
+                rospy.loginfo(f"Old goal theta: {goal_theta.flatten()}")
                 # Only works if arms are similar lengths
                 goal_theta *= np.array([ 1, -1, -1, -1, 1]).reshape((5, 1))
                 #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
+                rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
 
             goal_theta = self.ikin(goal_pos, goal_theta)
 
@@ -347,7 +369,7 @@ class Controller:
         else:
             raise RuntimeError(f"Unable to converge to {pgoal.flatten()}")
 
-        #theta = self.fix_goal_theta(theta, xgoal)
+        theta = self.fix_goal_theta(theta, xgoal)
 
 
         if return_J:

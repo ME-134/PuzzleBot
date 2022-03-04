@@ -52,14 +52,14 @@ class ThomasPuzzlePiece:
             return True
         return False
     
-    def get_bounding_box(self, threshold = 100, erosion = 15, dilation = 15):
+    def get_bounding_box(self, threshold = 100, erosion = 1, dilation = 1):
         # Compute a contour and then use the largest countour to build a bounding box
         filtered = self.img
         filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
         filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
-        import matplotlib.pyplot as plt
-        plt.imshow(filtered)
-        plt.show()
+        # import matplotlib.pyplot as plt
+        # plt.imshow(filtered)
+        # plt.show()
         contours, hierarchy = cv2.findContours(filtered, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         biggest_contour = max(contours, key = cv2.contourArea)
         rect = cv2.minAreaRect(biggest_contour)

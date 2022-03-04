@@ -66,6 +66,17 @@ class PuzzlePiece:
         new_mask = cv2.warpAffine(self.mask, M, self.mask.shape[::-1])
         self.update_mask(new_mask)
 
+    def move_to_no_mask(self, new_x_center, new_y_center):
+        dx = new_x_center - self.x_center
+        dy = new_y_center - self.y_center
+        self.xmin += dx
+        self.xmax += dx
+        self.ymin += dy
+        self.ymax += dy
+        self.x_center += dx
+        self.y_center += dy
+        self.mask = None # invalidates mask
+
     def rotate(self, theta):
         # theta in radians
         center = (self.x_center, self.y_center)
@@ -219,13 +230,14 @@ class Detector:
 
         if len(all_corners) != 16:
             rospy.loginfo(all_corners)
+            rospy.loginfo(ids)
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
-        world1 = np.array([-.3747, -.0854])
+        world1 = np.array([-.3712, -.0871])
         world2 = np.array([.1594, 0.3125])
         world3 = np.array([-0.3900, 0.2891])
-        world4 = np.array([0.1781, -0.0788])
+        world4 = np.array([0.1773, -0.0788])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
@@ -269,7 +281,7 @@ class Detector:
         grid_msg.header.frame_id = "map"
 
         # .info is a nav_msgs/MapMetaData message.
-        grid_msg.info.resolution = 0.00095
+        grid_msg.info.resolution = 0.00035
         grid_msg.info.width = img.shape[1]
         grid_msg.info.height = img.shape[0]
 
@@ -292,7 +304,7 @@ class Detector:
         img_orig = img.copy()
         # Filter out background
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        background_lower = (0, 0, 80)
+        background_lower = (0, 0, 50)
         background_upper = (255, 30, 220)
         binary = cv2.inRange(hsv, background_lower, background_upper)
 
@@ -300,18 +312,18 @@ class Detector:
         blocks = 255 - binary
 
         # Remove noise
-        blocks = cv2.dilate(blocks, None, iterations=1)
-        blocks = cv2.erode(blocks, None, iterations=1)
+        blocks = cv2.dilate(blocks, None, iterations=2)
+        blocks = cv2.erode(blocks, None, iterations=2)
 
-        # Perform 2 iterations of eroding (by distance)
+        # Perform 3 iterations of eroding (by distance)
         piece_centers = blocks
-        for i in range(2):
+        for i in range(3):
             dist_transform = cv2.distanceTransform(piece_centers,cv2.DIST_L2,5)
-            _, piece_centers = cv2.threshold(dist_transform,2,255,0)
+            _, piece_centers = cv2.threshold(dist_transform,7,255,0)
             piece_centers = piece_centers.astype(np.uint8)
 
         # One more eroding for good measure
-        piece_centers = cv2.erode(piece_centers, None, iterations=4)
+        #piece_centers = cv2.erode(piece_centers, None, iterations=4)
 
         n, markers, stats, centroids = cv2.connectedComponentsWithStats(piece_centers)
 

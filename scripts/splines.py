@@ -46,7 +46,7 @@ class SinTraj:
     def __init__(self, p0, pf, T, f, offset=0, space='Joint', rm=False):
         # Precompute the spline parameters.
         self.T = T
-        self.f = f
+        self.f = f              # frequency in Hz
         self.offset = offset
         self.p0 = p0
         self.pf = pf

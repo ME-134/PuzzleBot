@@ -125,9 +125,9 @@ class Solver:
                 rotation_offset *= -1
                 rotation_offset = np.fmod(rotation_offset, np.pi/2)
 
-                # print("rotation: ", rotation_offset)
+                print("rotation offset: ", rotation_offset)
                 ### END TEMP
-                threshold_rotation_error = 0.05
+                threshold_rotation_error = 0.1
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
                 # if piece.overlaps_with_region(self.get_puzzle_region()):
@@ -207,7 +207,7 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (120, 120, 640, 480)
+        return (890, 120, 1680, 980)
     
     def get_puzzle_region_as_slice(self):
         xmin, ymin, xmax, ymax = self.get_puzzle_region()
@@ -221,36 +221,40 @@ class Solver:
         # This is how we want our piece to end up
         dummy_piece_copy = piece.copy()
         dummy_piece_copy.rotate(rotation)
+        dummy_piece = dummy_piece_copy.copy()
 
-        free_space = self.detector.free_space_img
+        free_space = self.detector.free_space_img.copy()
+        free_space[piece.mask.astype(bool)] = True
 
         # Scan the whole area until we find a suitable free spot for our piece
-        start_x, start_y = 50, 50
-        for x in range(start_x, 640-50, 15):
-            for y in range(start_y, 480-50, 15):
-
-                # Create a copy because sometimes moving the piece makes the edges chopped off.
-                dummy_piece = dummy_piece_copy.copy()
-                dummy_piece.move_to(x, y)
+        start_x, start_y = 250, 80
+        for x in range(start_x, 1780-80, 30):
+            for y in range(start_y, 1080-80, 30):
+                dummy_piece.move_to_no_mask(x, y)
 
                 # Publish our plans
-                plan_img = self.detector.latestImage.copy()
-                plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
-                plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
-                plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
-                self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
+                # plan_img = self.detector.latestImage.copy()
+                #plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
+                # plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
+                # plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
+                # self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
                 
                 # Piece cannot go to the area we designate for the solved puzzle
                 if dummy_piece.overlaps_with_region(self.get_puzzle_region()):
                     break # assume puzzle region is in the bottom-right
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice(padding=5)]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=15)]):
+                    dummy_piece = dummy_piece_copy.copy()
+                    dummy_piece.move_to(x, y)
+                    plan_img = self.detector.latestImage.copy()
+                    plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
+                    plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
                     plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, -20], dtype=np.uint8)
                     plan_img[dummy_piece.mask.astype(bool)] = np.array([30, 200, 30], dtype=np.uint8)
                     self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
                     return np.array([x, y])
-        
+
         rospy.logwarn("[Solver] No free spaces found!")
 
         # Backup

@@ -25,11 +25,13 @@ import enum
 
 class SafeCubicSpline(CubicSpline):
     def __init__(self, p0, v0, pf, vf, T, **kwargs):
-        Bounds.assert_theta_valid(p0)
-        Bounds.assert_theta_valid(pf)
-        Bounds.assert_thetadot_valid(v0)
-        Bounds.assert_thetadot_valid(vf)
         CubicSpline.__init__(self, p0, v0, pf, vf, T, **kwargs)
+        if self.space() == 'Joint':
+            Bounds.assert_theta_valid(p0)
+            Bounds.assert_theta_valid(pf)
+            Bounds.assert_thetadot_valid(v0)
+            Bounds.assert_thetadot_valid(vf)
+
 
 class GotoSpline(SafeCubicSpline):
     # Use zero initial/final velocities (of same size as positions).
@@ -82,7 +84,7 @@ class FuncSegment:
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
     # Note that axis #2 is cut off at np.pi, so the arm cannot go through itself.
-    theta_min = np.array([-np.pi/2,      -0.1, -np.pi*0.9, -np.pi, -np.inf]).reshape((5, 1))
+    theta_min = np.array([-np.pi/2,      -0.1, -np.pi*0.1, -np.pi, -np.inf]).reshape((5, 1))
     theta_max = np.array([ np.pi/2,     np.pi,  np.pi*0.9,  np.pi,  np.inf]).reshape((5, 1))
 
     # I don't know
@@ -245,7 +247,6 @@ class Controller:
         origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
         dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
         splines.append(SafeCubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
-        print(origin_hover)
         splines.append(GotoSpline(origin_hover, origin_goal, space=space))
         splines.append(FuncSegment(lambda: self.set_pump(True)))
         splines.append(GotoSpline(origin_goal, origin_goal, space=space))
@@ -264,7 +265,7 @@ class Controller:
             jiggle_movement = SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
             hover = np.array([x, y, pickup_height + hover_amount, turn, 0]).reshape((5, 1))
-            p_goal, _ = jiggle_movement.evaluate(0)
+            pgoal, _ = jiggle_movement.evaluate(0)
             splines.append(GotoSpline(hover, pgoal, space='Task'))
             splines.append(FuncSegment(lambda: self.set_pump(False)))
             splines.append(GotoSpline(pgoal, pgoal, space='Task'))
@@ -275,12 +276,12 @@ class Controller:
                 jiggle_theta = self.ikin(p, dest_goal)
             else:
                 jiggle_theta = jiggle_movement
-            splines.append(GotoSpline(jiggle_theta, dest_hover, space=space))
+            splines.append(SafeCubicSpline(jiggle_theta, 0, dest_hover, 0, 2, space=space))
         else:
             splines.append(GotoSpline(dest_hover, dest_goal, space=space))
             splines.append(FuncSegment(lambda: self.set_pump(False)))
             splines.append(GotoSpline(dest_goal, dest_goal, space=space))
-            splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 1, space=space))
+            splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))
         self.change_segments(splines)
         self.state = State.pickup
 

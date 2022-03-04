@@ -122,10 +122,10 @@ class PuzzlePiece:
 
     def fully_contained_in_region(self, region):
         xmin, ymin, xmax, ymax = region
-        return (xmin < self.x_center < xmax) and \
-               (xmin < self.x_center + self.width < xmax) and \
-               (ymin < self.y_center < ymax) and \
-               (ymin < self.y_center + self.height < ymax)
+        return (xmin < self.xmin < xmax) and \
+               (xmin < self.xmax < xmax) and \
+               (ymin < self.ymin < ymax) and \
+               (ymin < self.ymax < ymax)
 
     def overlaps_with_region(self, region):
         xmin, ymin, xmax, ymax = region
@@ -213,7 +213,7 @@ class Detector:
 
     def crop_raw(self, img):
         # Crops unnecessary parts of the image out
-        return img[:, 100:-100, :]
+        return img[:, 200:, :]
 
     def init_aruco(self):
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
@@ -225,7 +225,7 @@ class Detector:
 
         # Undistort corners
         all_corners = np.array(all_corners).reshape((-1,2))
-        all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
+        #all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
 
         if len(all_corners) != 16:
@@ -234,10 +234,10 @@ class Detector:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
 
         #Real Coordinates
-        world1 = np.array([-.3712, -.0871])
-        world2 = np.array([.1594, 0.3125])
-        world3 = np.array([-0.3900, 0.2891])
-        world4 = np.array([0.1773, -0.0788])
+        world1 = np.array([-.4325, -.1519])
+        world2 = np.array([.1982, 0.2867])
+        world3 = np.array([-0.4146, 0.2654])
+        world4 = np.array([0.2335, -0.1208])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
@@ -255,13 +255,18 @@ class Detector:
             ids_reorder[i] = np.where(ids == i)[0]
         screens = np.float32([screen1, screen2, screen3, screen4])[ids_reorder]
         worlds = np.float32([world1, world2, world3, world4])
+
+        print(screens)
+        print(worlds)
+
         self.transform = cv2.getPerspectiveTransform(screens, worlds)
 
     def world_to_screen(self, x, y):
         raise NotImplementedError()
 
     def screen_to_world(self, x, y):
-        coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
+        #coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
+        coords = np.float32([[[x, y]]])
         x, y = cv2.perspectiveTransform(coords, self.transform)[0, 0]
         return (x, y)
 

@@ -4,6 +4,8 @@ import enum
 
 import rospy
 
+import cv2
+
 from sensor_msgs.msg   import Image
 
 import numpy as np
@@ -114,7 +116,7 @@ class Solver:
             # to their correct orientation.
             rospy.loginfo("[Solver] Current task is SeparatePieces, sending PieceMove command.")
 
-            for piece in self.piece_list:
+            for piece in sorted(self.piece_list, key=lambda piece: piece.xmin):
                 # Make sure piece is not already separated
                 #if np.all(piece.get_center() > self.separated_loc - np.array([5, 5])):
                 #    continue
@@ -123,7 +125,10 @@ class Solver:
                 rotation_offset = self.get_rotation_offset(piece.img)
                 ### TEMP
                 rotation_offset *= -1
-                rotation_offset = np.fmod(rotation_offset, np.pi/2)
+
+                rotation_offset += np.pi / 4
+                rotation_offset %= np.pi / 2
+                rotation_offset -= np.pi / 4
 
                 print("rotation offset: ", rotation_offset)
                 ### END TEMP
@@ -208,7 +213,10 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (890, 120, 1680, 980)
+        return (600, 350, 1680, 980)
+
+    def get_screen_region(self):
+        return (0, 0, 1780, 1080)
     
     def get_puzzle_region_as_slice(self):
         xmin, ymin, xmax, ymax = self.get_puzzle_region()
@@ -224,13 +232,16 @@ class Solver:
         dummy_piece_copy.rotate(rotation)
         dummy_piece = dummy_piece_copy.copy()
 
+        # Mask of where there are no pieces or aruco markers
         free_space = self.detector.free_space_img.copy()
-        free_space[piece.mask.astype(bool)] = True
+
+        # Add existing piece to free space
+        free_space[piece.mask.astype(bool)] = 255
 
         # Scan the whole area until we find a suitable free spot for our piece
-        start_x, start_y = 250, 80
-        for x in range(start_x, 1780-80, 30):
-            for y in range(start_y, 1080-80, 30):
+        start_x, start_y = 100, 100
+        for x in range(start_x, 1780-100, 10):
+            for y in range(start_y, 1080-100, 10):
                 dummy_piece.move_to_no_mask(x, y)
 
                 # Publish our plans
@@ -240,17 +251,31 @@ class Solver:
                 # plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
                 # self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
                 
+                if not dummy_piece.fully_contained_in_region(self.get_screen_region()):
+                    continue
+
                 # Piece cannot go to the area we designate for the solved puzzle
                 if dummy_piece.overlaps_with_region(self.get_puzzle_region()):
                     break # assume puzzle region is in the bottom-right
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice(padding=15)]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=10)]):
                     dummy_piece = dummy_piece_copy.copy()
                     dummy_piece.move_to(x, y)
+
                     plan_img = self.detector.latestImage.copy()
+
+                    # Mark out puzzle territory in red
                     plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
+
+                    # Mark out spaces that aren't free in red
+                    plan_img[free_space.astype(bool) == False] += np.array([0, 0, 40], dtype=np.uint8)
+
+                    # Color selected piece in blue
                     plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
+                    plan_img = cv2.circle(plan_img, (piece.x_center, piece.y_center), 15, (200, 30, 30), -1)
+
+                    # Color intended placement in green
                     plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, -20], dtype=np.uint8)
                     plan_img[dummy_piece.mask.astype(bool)] = np.array([30, 200, 30], dtype=np.uint8)
                     self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))

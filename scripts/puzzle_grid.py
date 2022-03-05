@@ -5,7 +5,7 @@ import numpy as np
 def get_xy_min(arr):
     argmin = np.argmin(arr)
     y = argmin % arr.shape[1]
-    x = (argmin - y) // arr.shape[0]
+    x = (argmin - y) // arr.shape[1]
 
     return (x, y)
 

@@ -205,19 +205,32 @@ class Controller:
         spline = SafeCubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
         
-    def perturb(self, loc, r=100):
+    def perturb(self, piece, space='Joint'):
         # Moves tip in area to perturb pieces in pixel space
         # TODO
-        pass
+        perturb_height = 0.01
+        hover_amount = 0.06
+        x, y = piece.get_center()
+        x, y = self.detector.screen_to_world(x, y)
+        pgoal = np.array([x, y, perturb_height, 0, 0]).reshape((5, 1))
+        hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
+
+        if space == 'Joint':
+            hover_theta = self.ikin(hover, self.mean_theta)
+            goal_theta = self.ikin(pgoal, hover_theta)
+        else:
+            raise NotImplementedError()
+
+        splines = list()
+        splines.append(SafeCubicSpline(self.lasttheta, self.lastthetadot, hover_theta, 0, 3, space=space))
+        splines.append(GotoSpline(hover_theta, goal_theta, space=space))
+        self.change_segments([splines])
 
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         
-        if jiggle:
-            pickup_height = 0
-        else:
-            pickup_height = -0.02
+        pickup_height = -0.02
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
@@ -256,10 +269,11 @@ class Controller:
             pos_offset = .003
             rot_offset = .08
             duration = 5
+            jiggle_height = 0.0
             x, y = piece_destination
             x, y = self.detector.screen_to_world(x, y)
-            pgoal1 = np.array([x - pos_offset, y - pos_offset, pickup_height, turn - rot_offset, 0]).reshape((5, 1))
-            pgoal2 = np.array([x + pos_offset, y + pos_offset, pickup_height, turn + rot_offset, 0]).reshape((5, 1))
+            pgoal1 = np.array([x - pos_offset, y - pos_offset, jiggle_height, turn - rot_offset, 0]).reshape((5, 1))
+            pgoal2 = np.array([x + pos_offset, y + pos_offset, jiggle_height, turn + rot_offset, 0]).reshape((5, 1))
             phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
             freq = np.array([1, 1, .5, .6, .5]).reshape((5, 1))
             jiggle_movement = SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
@@ -274,7 +288,7 @@ class Controller:
             if space == 'Joint':
                 p, _ = jiggle_movement.evaluate(duration)
                 jiggle_theta = self.ikin(p, dest_goal)
-            else:
+            elif space == 'Task':
                 jiggle_theta = jiggle_movement
             splines.append(SafeCubicSpline(jiggle_theta, 0, dest_hover, 0, 2, space=space))
         else:

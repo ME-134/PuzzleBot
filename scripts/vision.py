@@ -1,15 +1,12 @@
 from glob import glob
 import numpy as np 
-import pandas as pd
 
 import cv2
 
 import torch
 import torch.nn as nn
 from torch.utils import data
-import copy
 
-import accountant
 import torch.multiprocessing as mp
 from thomas_detector import ThomasDetector
 from puzzle_grid import PuzzleGrid, get_xy_min
@@ -18,14 +15,17 @@ device = 'cpu'
 torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True)
 
 name = 'efficientnetTune2_epoch8'
-model = torch.load('..\\vision\\checkpoints\\'+name+'.cp').eval().to(device)
+model = torch.load('/home/me134/me134ws/src/HW1/vision/checkpoints/efficientnetTune_epoch3.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512
 
 def run_model(img, image_size = 150):
+    # import matplotlib.pyplot as plt
+    # plt.imshow(img)
+    # plt.show()
     img = cv2.resize(img, (image_size, image_size))
-    img = (img - img.mean()) / img.std()
-#     img = ((img / 255.0) - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
-    ref = torch.from_numpy(img[:124, :124, :].reshape(1, 124, 124, 3)).float().permute(0, 3, 1, 2).to(device)
+    # img = (img - img.mean()) / img.std()
+    img = ((img / 255.0) - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
+    ref = torch.from_numpy(img[:image_size, :image_size, :].reshape(1, image_size, image_size, 3)).float().permute(0, 3, 1, 2).to(device)
     ref_pred = model(ref)
     return ref_pred.cpu().detach().numpy()
 
@@ -72,7 +72,7 @@ class VisionMatcher():
                 if(piece == None):
                     print("Missing piece", (row, col))
                 else:
-                    self.inferences[row, col] = run_model(piece.img)
+                    self.inferences[row, col] = run_model(piece.natural_img)
             
     def calculate_xyrot(self, img):
         sims = np.zeros((self.width_n, self.height_n, 4))

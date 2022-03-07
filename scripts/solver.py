@@ -5,6 +5,7 @@ import enum
 import rospy
 
 import cv2
+from vision import cvt_color
 
 from sensor_msgs.msg   import Image
 
@@ -30,7 +31,7 @@ class Solver:
     def __init__(self, detector):
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
-        self.vision = vision.VisionMatcher('../done_exploded_colored2.jpg')
+        self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored2.jpg')
         # Stack
         self.tasks = []
         self.tasks.append(SolverTask.PutPiecesTogether)
@@ -87,6 +88,7 @@ class Solver:
                 if self.pieces_solved == self.num_pieces:
                     rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
                     self.tasks.pop()
+                self.tasks.append(SolverTask.GetView)
             else:
                 raise NotImplementedError()
 
@@ -161,7 +163,9 @@ class Solver:
             rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
 
             # target_piece = self.reference_pieces[self.pieces_solved]
-            # for piece in self.piece_list:
+            for piece in self.piece_list:
+                if piece.fully_contained_in_region(self.get_puzzle_region()):
+                    continue
             #     if self.pieces_match(piece.img, target_piece.img):
             #         break
             # else:
@@ -172,14 +176,15 @@ class Solver:
             #     self.tasks.append(SolverTask.GetView)
             #     return self.apply_next_action(controller)
 
-            piece_origin = piece.get_center()
+                piece_origin = piece.get_center()
 
-            # FIXME, this isn't quite right but is a good start
-            # piece_destination = target_piece.get_center()
-            cords, rot = self.vision.calculate_xyrot(piece.natural_img)[0]
-            piece_destination = (cords[0] * 100 + 100, cords[1] * 100 + 100)
-            controller.move_piece(piece_origin, piece_destination, jiggle=True)
-
+                # FIXME, this isn't quite right but is a good start
+                # piece_destination = target_piece.get_center()
+                cords, rot = self.vision.calculate_xyrot(cvt_color(piece.natural_img))
+                rospy.loginfo(f"Piece Location: {cords}, Rotation: {rot}")
+                piece_destination = (cords[0] * 150 + 620, cords[1] * 150 + 370)
+                controller.move_piece(piece_origin, piece_destination, jiggle=True)
+                return
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             raise NotImplementedError()
 

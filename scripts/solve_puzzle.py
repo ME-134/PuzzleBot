@@ -230,7 +230,7 @@ class Controller:
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         
-        pickup_height = -0.02
+        pickup_height = -0.01
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
@@ -567,7 +567,7 @@ if __name__ == "__main__":
         controller.update(t)
         t = (time.time() - start)
         tms = t * 1000
-        if tms > 5:
+        if tms > 7:
             rospy.logwarn(f"Update took {int(tms)}ms")
         timing_pub.publish(t)
 

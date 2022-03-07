@@ -37,6 +37,7 @@ class PuzzlePiece:
         self.removed = False
 
         self.img = None
+        self.natural_img = None
     
     def update_mask(self, mask):
         ys, xs = np.where(mask)
@@ -93,7 +94,8 @@ class PuzzlePiece:
 
     def set_img(self, img):
         self.img = img
-
+    def set_natural_img(self, natural_img):
+        self.natural_img = natural_img
     def get_color(self):
         return self.color
 
@@ -199,7 +201,8 @@ class Detector:
 
     def save_img(self, msg):
         self.latestImage = self.crop_raw(self.bridge.imgmsg_to_cv2(msg, "bgr8"))
-        
+
+
     def snap(self):
         if self.latestImage is None:
             rospy.logwarn("[Detector] Waiting for image from camera...")
@@ -392,6 +395,9 @@ class Detector:
 
                 cutout_img = img_orig[piece.bounds_slice(padding=30)].copy()
                 piece.set_img(cutout_img)
+
+                cutout_img = img_orig[piece.bounds_slice(padding=10)].copy()
+                piece.set_natural_img(cutout_img)
 
         # Show a circle over each detected piece
         for piece in pieces:

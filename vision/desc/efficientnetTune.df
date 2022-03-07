@@ -1,0 +1,16 @@
+primary_class = 'efficientnetTune2'
+image_size = 124
+objective = 'sirna'
+batch_size = 16
+train_epochs = 30
+parent_model = None
+name = 'efficientnetTune2'
+
+if eval:
+    torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True, force_reload=True)
+    model = torch.load('C:\\Code\\CS134\\HW1\\vision\\models\\'+name+'.pt')
+else:
+    torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True, force_reload=True)
+    model = torch.load('C:\\Code\\CS134\\HW1\\vision\\models\\'+'efficientnetB2g.pt')
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
+    criterion = nn.TripletMarginLoss()

@@ -12,6 +12,7 @@ import copy
 
 import torchvision
 from torchvision import datasets, models, transforms
+import torchvision.transforms as T
 import accountant
 import torch.multiprocessing as mp
 
@@ -35,16 +36,16 @@ class ImagesDS(data.Dataset):
     def __getitem__(self, index):
         img_path = self.files[index]
         np_image = cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
-        while min(np_image.shape[0], np_image.shape[1]) < 200:
+        while min(np_image.shape[0], np_image.shape[1]) < 250:
             np_image= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
         
         np_negative = cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
-        while min(np_negative.shape[0], np_negative.shape[1]) < 200:
+        while min(np_negative.shape[0], np_negative.shape[1]) < 250:
             np_negative= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
 
-        anchor = self.transform(np_image / 255.0)
-        positive = self.transform(np_image / 255.0)
-        negative = self.transform(np_negative / 255.0)
+        anchor = self.transform(np_image)
+        positive = self.transform(np_image)
+        negative = self.transform(np_negative)
 
         return anchor, positive, negative
 
@@ -57,6 +58,7 @@ class RandomCrop(object):
         self.im_size = im_size
     def __call__(self, sample):
         c_max, r_max, _ = sample.shape
+        print(sample.shape)
         c, r = np.random.randint(0, c_max-self.im_size), np.random.randint(0, r_max-self.im_size)
         sample = sample[c:c+self.im_size,r:r+self.im_size, :]
         return sample
@@ -68,7 +70,7 @@ class Resize(object):
         return cv2.resize(sample, (self.im_size, self.im_size))
     
 class RandomFlip(object):
-    def __init__(self, proba = 0.5):
+    def __init__(self, proba = 0.2):
         self.proba = proba
     def __call__(self, sample):
         # Get rid of one of these
@@ -79,17 +81,18 @@ class RandomFlip(object):
         return sample
 
 class RandomRotate(object):
-    def __init__(self, proba = 0.3) -> None:
+    def __init__(self, proba = 1) -> None:
         self.proba = proba
     def __call__(self, sample):
         if(np.random.random() < self.proba):
-            sample = np.rot90(sample,axes=(-2,-1))
+            sample = np.rot90(sample, k = np.random.choice([0,1,2,3]))
         return sample
         
 
 class ToTensor(object):
     def __call__(self, sample):
-        return (torch.from_numpy(sample.copy()).float())
+        t = torch.from_numpy(sample.copy()).permute(2,0,1)
+        return t 
 
 def to_numpy(x):
     return x.cpu().detach().numpy()
@@ -102,7 +105,7 @@ class Flatten(nn.Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
 
-def train_model(model, train_loader, val_loader, optimizer, num_epochs, batch_size, criterion, early_stop_rounds = 1, start_epoch = 0):
+def train_model(model, train_loader, val_loader, optimizer, num_epochs, batch_size, criterion, early_stop_rounds = 2, start_epoch = 0):
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = np.inf
     epochs_since_best = 0
@@ -125,7 +128,8 @@ def train_model(model, train_loader, val_loader, optimizer, num_epochs, batch_si
             bar = tqdm(enumerate(dataloaders[phase]), total=dataset_sizes[phase])
             for i, (anchor, positive, negative) in bar:
                 #batch_size x n_channel x width x height
-                anchor, positive, negative = normalize(anchor.permute(0, 3, 1, 2)).to(device), normalize(positive.permute(0, 3, 1, 2)).to(device), normalize(negative.permute(0, 3, 1, 2)).to(device)
+                anchor, positive, negative = normalize(anchor.float()/255.0).to(device), normalize(positive.float()/255.0).to(device), normalize(negative.float()/255.0).to(device)
+                # anchor, positive, negative = normalize(anchor.permute(0, 3, 1, 2)).to(device), normalize(positive.permute(0, 3, 1, 2)).to(device), normalize(negative.permute(0, 3, 1, 2)).to(device)
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs_anchor = model(anchor)
@@ -175,8 +179,8 @@ if __name__=='__main__':
 
     train_files = glob('C:/Code/CS134/data/train2014/train2014/*.jpg')
 
-    train_composed = transforms.Compose([RandomCrop(accountant.image_size), RandomFlip(), ToTensor()])
-    val_composed = transforms.Compose([RandomCrop(accountant.image_size), RandomFlip(), ToTensor()])
+    train_composed = transforms.Compose([Resize(220), RandomRotate(), ToTensor(), T.RandAugment(), T.RandomCrop(accountant.image_size)])
+    val_composed = transforms.Compose([Resize(220), RandomRotate(), ToTensor(), T.RandAugment(), T.RandomCrop(accountant.image_size)])
     
     ds_train = ImagesDS(train_files, 16_000, train_composed)
     ds_val = ImagesDS(train_files[::10], 1_000, val_composed)
@@ -187,8 +191,8 @@ if __name__=='__main__':
 
 
     batch_size = accountant.batch_size
-    train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=False, num_workers=4)
-    val_loader = data.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=False, num_workers=5)
+    val_loader = data.DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=5)
     optimizer = accountant.optimizer
     model = train_model(model, train_loader, val_loader, 
                          optimizer, accountant.train_epochs, batch_size, accountant.criterion)

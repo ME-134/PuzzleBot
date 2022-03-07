@@ -15,6 +15,7 @@ class ThomasPuzzlePiece:
         self.removed = False
 
         self.img = None
+        self.natural_img = None
 
     def get_location(self):
         return (self.x, self.y)
@@ -25,6 +26,9 @@ class ThomasPuzzlePiece:
 
     def set_img(self, img):
         self.img = img
+
+    def set_natural_img(self, natural_img):
+        self.natural_img = natural_img
 
     def get_color(self):
         return self.color
@@ -176,9 +180,12 @@ class ThomasDetector:
                 pieces.append(piece)
 
                 cutout_img = blocks[max(ymin-20,0):ymin+height+20, max(xmin-20,0):xmin+height+20].copy()
-#                 cutout_img = img[ymin:ymin+height, xmin:xmin+height].copy()
                 piece.set_img(cutout_img)
 
+                y_max, x_max = blocks.shape[:2]
+                cutout_img = img[max(ymin-10,0):min(ymin+height+10, y_max),
+                                    max(xmin-10,0):min(xmin+width+10, x_max)].copy()
+                piece.set_natural_img(cutout_img)
 
         for piece in pieces:
             r = int(np.sqrt(piece.area) / 4) + 1

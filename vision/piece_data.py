@@ -41,8 +41,8 @@ def get_img_lists():
                 img_height, img_width, _ = img.shape
                 x = piece.x
                 y = piece.y
-                w = piece.width
-                h = piece.height
+                w = piece.width + 50
+                h = piece.height + 50
                 img_chunk = img[max(y-h//2, 0):min(y+h//2, img_height), max(x-w//2, 0):min(x+w//2, img_width)]
                 img_list[i].append(img_chunk)
 
@@ -51,23 +51,61 @@ def get_img_lists():
     return img_lists
 
 class ImagesListDS(data.Dataset):
-    def __init__(self, img_lists):
-        self.len = len(img_lists)
+    def __init__(self, transform, multiplier = 10):
+        self.img_lists = get_img_lists()
+        self.len = len(self.img_lists) * len(self.img_lists[0]) * len(self.img_lists[0][0]) * multiplier
         self.transform = transform
 
     def __getitem__(self, index):
-        img_path = self.files[index]
-        np_image = cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
-        while min(np_image.shape[0], np_image.shape[1]) < 200:
-            np_image= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
-        
-        np_negative = cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
-        while min(np_negative.shape[0], np_negative.shape[1]) < 200:
-            np_negative= cv2.cvtColor(cv2.imread(np.random.choice(self.files)), cv2.COLOR_BGR2RGB)
+        i = np.random.randint(0, len(self.img_lists))
+        l = self.img_lists[i]
+        j = np.random.randint(0, len(l))
+        ps = l[j]
+        p1 = ps[np.random.randint(0, len(ps))]
+        p2 = ps[np.random.randint(0, len(ps))]
 
-        anchor = self.transform(np_image)
-        positive = self.transform(np_image)
-        negative = self.transform(np_negative)
+        i = np.random.randint(0, len(self.img_lists))
+        l = self.img_lists[i]
+        j = np.random.randint(0, len(l))
+        ps = l[j]
+        n = ps[np.random.randint(0, len(ps))]
+
+
+
+        anchor = self.transform(p1)
+        positive = self.transform(p2)
+        negative = self.transform(n)
+
+        return anchor, positive, negative
+
+    def __len__(self):
+        # The number of samples in the dataset.
+        return self.len
+
+
+class ImagesRotateDS(data.Dataset):
+    def __init__(self, transform, multiplier = 10):
+        self.img_lists = get_img_lists()
+        self.len = len(self.img_lists) * len(self.img_lists[0]) * len(self.img_lists[0][0]) * multiplier
+        self.transform = transform
+
+    def __getitem__(self, index):
+        i = np.random.randint(0, len(self.img_lists))
+        l = self.img_lists[i]
+        j = np.random.randint(0, len(l))
+        ps = l[j]
+        m = np.random.randint(0, len(ps))
+
+        k1 = np.random.choice([0,1,2,3])
+        k2 = np.random.choice([0,1,2,3])
+
+        p1 = np.rot90(ps[m], k = k1)
+        p3 = np.rot90(ps[m], k = k2)
+
+
+        anchor = self.transform(p1)
+        positive = self.transform(p1)
+        negative = self.transform(p3)
 
         return anchor, positive, negative
 

@@ -30,7 +30,7 @@ class Solver:
     def __init__(self, detector):
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
-        self.vision = vision.VisionMatcher('vision/done_exploded2.jpg')
+        self.vision = vision.VisionMatcher('../done_exploded_colored2.jpg')
         # Stack
         self.tasks = []
         self.tasks.append(SolverTask.PutPiecesTogether)

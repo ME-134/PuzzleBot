@@ -44,7 +44,7 @@ class VisionMatcher():
         
         self.puzzle_grid = PuzzleGrid(
             width_n = width_n, height_n = height_n, spacing_height = 1.0/(height_n-1), spacing_width = 1.0/(width_n-1), offset_x = 0, offset_y = 0
-            )
+        )
         
         self.max_x = np.max([p.x for p in self.pieces])
         self.min_x = np.min([p.x for p in self.pieces])

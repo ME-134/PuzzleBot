@@ -11,6 +11,7 @@ from sensor_msgs.msg   import Image
 import numpy as np
 
 from thomas_detector import ThomasDetector, ThomasPuzzlePiece
+import vision
 
 class SolverTask(enum.Enum):
     GetView = 1
@@ -29,7 +30,7 @@ class Solver:
     def __init__(self, detector):
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
-
+        self.vision = vision.VisionMatcher('vision/done_exploded2.jpg')
         # Stack
         self.tasks = []
         self.tasks.append(SolverTask.PutPiecesTogether)
@@ -159,23 +160,24 @@ class Solver:
             # Select pieces from the border and put them in the right place
             rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
 
-            target_piece = self.reference_pieces[self.pieces_solved]
-            for piece in self.piece_list:
-                if self.pieces_match(piece.img, target_piece.img):
-                    break
-            else:
-                # Error, no piece found!
-                rospy.logwarn(f"[Solver] Target piece #{self.peices_solved} not found! Getting a new view.")
+            # target_piece = self.reference_pieces[self.pieces_solved]
+            # for piece in self.piece_list:
+            #     if self.pieces_match(piece.img, target_piece.img):
+            #         break
+            # else:
+            #     # Error, no piece found!
+            #     rospy.logwarn(f"[Solver] Target piece #{self.peices_solved} not found! Getting a new view.")
 
-                # Attempt to recover by getting another view of the camera
-                self.tasks.append(SolverTask.GetView)
-                return self.apply_next_action(controller)
+            #     # Attempt to recover by getting another view of the camera
+            #     self.tasks.append(SolverTask.GetView)
+            #     return self.apply_next_action(controller)
 
             piece_origin = piece.get_center()
 
             # FIXME, this isn't quite right but is a good start
-            piece_destination = target_piece.get_center()
-
+            # piece_destination = target_piece.get_center()
+            cords, rot = self.vision.calculate_xyrot(piece.natural_img)[0]
+            piece_destination = (cords[0] * 100 + 100, cords[1] * 100 + 100)
             controller.move_piece(piece_origin, piece_destination, jiggle=True)
 
         elif curr_task == SolverTask.SeparateOverlappingPieces:

@@ -16,6 +16,7 @@ class ThomasPuzzlePiece:
 
         self.img = None
         self.natural_img = None
+        self.embedding = np.zeros((512, 4), dtype = np.float32)
 
     def get_location(self):
         return (self.x, self.y)

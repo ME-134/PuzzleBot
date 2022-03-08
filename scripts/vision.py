@@ -15,16 +15,17 @@ device = 'cpu'
 torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True)
 
 name = 'efficientnetTune2_epoch8'
-model = torch.load('/home/me134/me134ws/src/HW1/vision/checkpoints/efficientnetTune_epoch3.cp', map_location=torch.device('cpu')).eval().to(device)
+# model = torch.load('/home/me134/me134ws/src/HW1/vision/checkpoints/efficientnetTune_epoch3.cp', map_location=torch.device('cpu')).eval().to(device)
+model = torch.load('../vision/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512
 
-def run_model(img, image_size = 150):
+def run_model(img, image_size = 124):
     # import matplotlib.pyplot as plt
     # plt.imshow(img)
     # plt.show()
     img = cv2.resize(img, (image_size, image_size))
-    # img = (img - img.mean()) / img.std()
-    img = ((img / 255.0) - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
+    img = (img - img.mean()) / img.std()
+    # img = ((img / 255.0) - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
     ref = torch.from_numpy(img[:image_size, :image_size, :].reshape(1, image_size, image_size, 3)).float().permute(0, 3, 1, 2).to(device)
     ref_pred = model(ref)
     return ref_pred.cpu().detach().numpy()
@@ -72,12 +73,13 @@ class VisionMatcher():
                 if(piece == None):
                     print("Missing piece", (row, col))
                 else:
-                    self.inferences[row, col] = run_model(piece.natural_img)
+                    val = piece.natural_img * (piece.img.reshape(piece.img.shape[0], piece.img.shape[1], 1) > 128)
+                    self.inferences[row, col] = run_model(val)
             
     def calculate_xyrot(self, img):
         sims = np.zeros((self.width_n, self.height_n, 4))
         for k in range(4):
             sims[:, :, k] = ((self.inferences - run_model(np.rot90(img, k = k))) ** 2).sum(axis = 2)
         
-        xy_min = get_xy_min(sims[:, :].min(axis = 2) + sims[:, :].mean(axis = 2))
+        xy_min = get_xy_min(sims[:, :].mean(axis = 2))
         return xy_min, np.argmin(sims[xy_min[0], xy_min[1], :4])

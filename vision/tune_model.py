@@ -154,11 +154,11 @@ if __name__=='__main__':
 
     accountant.load_accountant(args.accountant_file, retrain_model = args.retrain_model, tag = args.tag)
 
-    train_composed = transforms.Compose([Resize(accountant.image_size), RandomRotate(), ToTensor(), T.RandAugment(num_ops = 4)])
+    train_composed = transforms.Compose([Resize(accountant.image_size), RandomRotate(), ToTensor(), T.RandAugment(num_ops = 6)])
     val_composed = transforms.Compose([Resize(accountant.image_size), RandomRotate(), ToTensor()])
     
-    ds_train = ImagesListDS(train_composed, multiplier=5)
-    ds_val = ImagesListDS(val_composed, multiplier=2)
+    ds_train = ImagesListDS(train_composed, multiplier=2.5)
+    ds_val = ImagesListDS(val_composed, multiplier=1)
     model = accountant.model
     print(model)
 

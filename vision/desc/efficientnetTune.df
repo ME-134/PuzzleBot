@@ -1,10 +1,10 @@
-primary_class = 'efficientnetTune2'
+primary_class = 'efficientnetTune5'
 image_size = 124
 objective = 'sirna'
-batch_size = 16
+batch_size = 4
 train_epochs = 30
 parent_model = None
-name = 'efficientnetTune2'
+name = 'efficientnetTune5'
 
 if eval:
     torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True, force_reload=True)

@@ -138,18 +138,14 @@ class Solver:
                 threshold_rotation_error = 0.1
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
-                # if piece.overlaps_with_region(self.get_puzzle_region()):
-                #     break
+                if piece.overlaps_with_region(self.get_puzzle_region()):
+                    break
             else:
                 # Nothing more to do in the current task!
                 rospy.logwarn("[Solver] No pieces left to separate, continuing to next solver task.")
                 self.tasks.pop()
                 return self.apply_next_action(controller)
-
-            # import matplotlib.pyplot as plt
-            # print(rotation_offset * 180 / np.pi)
-            # plt.imshow(piece.img)
-            # plt.show()
+                
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
             print(piece_origin, piece_destination)
@@ -180,10 +176,11 @@ class Solver:
 
                 # FIXME, this isn't quite right but is a good start
                 # piece_destination = target_piece.get_center()
-                cords, rot = self.vision.calculate_xyrot(cvt_color(piece.natural_img))
+                val = cvt_color(piece.natural_img) * (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
+                cords, rot = self.vision.calculate_xyrot(val)
                 rospy.loginfo(f"Piece Location: {cords}, Rotation: {rot}")
                 piece_destination = (cords[0] * 150 + 620, cords[1] * 150 + 370)
-                controller.move_piece(piece_origin, piece_destination, jiggle=True)
+                controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True)
                 return
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             raise NotImplementedError()

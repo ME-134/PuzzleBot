@@ -14,9 +14,9 @@ from puzzle_grid import PuzzleGrid, get_xy_min
 device = 'cpu'
 torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True)
 
-name = 'efficientnetTune2_epoch8'
-# model = torch.load('/home/me134/me134ws/src/HW1/vision/checkpoints/efficientnetTune_epoch3.cp', map_location=torch.device('cpu')).eval().to(device)
-model = torch.load('../vision/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
+name = 'efficientnetTune5_epoch10'
+model = torch.load('/home/me134/me134ws/src/HW1/vision/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
+# model = torch.load('../vision/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512
 
 def run_model(img, image_size = 124):

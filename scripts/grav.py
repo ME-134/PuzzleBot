@@ -70,7 +70,7 @@ class Generator:
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
                                   [-.1, 4.4],
-                                  [-0.5, -3.5],])
+                                  [-0.5, -3.95],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.

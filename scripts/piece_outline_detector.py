@@ -38,6 +38,7 @@ class PuzzlePiece:
 
         self.img = None
         self.natural_img = None
+        self.thomas_mask = None
     
     def update_mask(self, mask):
         ys, xs = np.where(mask)
@@ -238,9 +239,9 @@ class Detector:
 
         #Real Coordinates
         world1 = np.array([-.4325, -.1519])
-        world2 = np.array([.1982, 0.2867])
+        world2 = np.array([.2015, 0.2869])
         world3 = np.array([-0.4146, 0.2654])
-        world4 = np.array([0.2335, -0.1208])
+        world4 = np.array([0.2377, -0.1190])
 
         box1 = all_corners[0:4]
         box2 = all_corners[4:8]
@@ -398,6 +399,8 @@ class Detector:
 
                 cutout_img = img_orig[piece.bounds_slice(padding=10)].copy()
                 piece.set_natural_img(cutout_img)
+
+                piece.thomas_mask = blocks[piece.bounds_slice(padding=10)].copy()
 
         # Show a circle over each detected piece
         for piece in pieces:

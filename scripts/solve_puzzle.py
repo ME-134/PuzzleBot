@@ -137,7 +137,7 @@ class Controller:
         # Instantiate the Kinematics
         inertial_params = np.array([[0, 0],
                                   [-.1, 4.4],
-                                  [-0.5, -3.5],])
+                                  [-0.5, -3.95],])
         self.kin = Kinematics(robot, 'world', 'tip', inertial_params=inertial_params)
 
         # Initialize the current segment index and starting time t0.
@@ -162,7 +162,7 @@ class Controller:
         self.segments = []
 
         # Point where the robot resets to
-        self.reset_pos = np.array([ 0.06, -0.11, 0.18, 0, 0]).reshape((5,1))
+        self.reset_pos = np.array([ 0.157, -0.094, 0.25, 0, 0]).reshape((5,1))
         self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
 
         # Subscriber which listens to the motors' positions and velocities
@@ -193,7 +193,7 @@ class Controller:
         rospy.loginfo("Resetting robot")
         self.state = State.reset
 
-        guess = np.array([-1.31, 1.88, 2.26, -0.38, -1.31]).reshape((5,1))
+        guess = np.array([-1.48, 1.83, 1.857, -0.07, 0]).reshape((5,1))
         goal_theta = self.ikin(self.reset_pos, guess)
         print('\n\n\n')
         print(goal_theta)
@@ -230,7 +230,7 @@ class Controller:
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         
-        pickup_height = -0.01
+        pickup_height = -0.005
         hover_amount  = 0.06
 
         # move from current pos to piece_origin
@@ -266,8 +266,8 @@ class Controller:
         splines.append(GotoSpline(origin_goal, origin_hover, space=space))
         splines.append(GotoSpline(origin_hover, dest_hover, space=space))
         if jiggle:
-            pos_offset = .003
-            rot_offset = .08
+            pos_offset = .004
+            rot_offset = .12
             duration = 5
             jiggle_height = 0.0
             x, y = piece_destination
@@ -282,7 +282,7 @@ class Controller:
             pgoal, _ = jiggle_movement.evaluate(0)
             splines.append(GotoSpline(hover, pgoal, space='Task'))
             splines.append(FuncSegment(lambda: self.set_pump(False)))
-            splines.append(GotoSpline(pgoal, pgoal, space='Task'))
+            # splines.append(GotoSpline(pgoal, pgoal, space='Task'))
 
             splines.append(jiggle_movement)
             if space == 'Joint':

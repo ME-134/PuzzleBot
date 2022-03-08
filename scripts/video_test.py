@@ -6,12 +6,14 @@ matcher = VisionMatcher('../done_exploded_colored2.jpg')
 detector = ThomasDetector()
 matched = None
 warped = None
-count = 50
+count = 100
+print('A')
 cv2.namedWindow("preview")
 cv2.namedWindow("piece")
 cv2.namedWindow("match")
-vc = cv2.VideoCapture(0,cv2.CAP_DSHOW)
-
+print('B')
+vc = cv2.VideoCapture(0)
+print(vc.isOpened())
 if vc.isOpened(): # try to get the first frame
     rval, frame = vc.read()
 else:
@@ -30,6 +32,7 @@ while rval:
         cv2.imshow("match", matched)
 
     rval, frame = vc.read()
+    frame = frame[:, 200:]
     key = cv2.waitKey(0)
     if key == 27: # exit on ESC
         break

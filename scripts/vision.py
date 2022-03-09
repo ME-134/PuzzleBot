@@ -114,7 +114,7 @@ class VisionMatcher():
         base = self.piece_grid[xy_min[0]][xy_min[1]].natural_img
         ious = [calc_iou(np.rot90(img, k = k), base) for k in range(4)]
         argmin_basic = np.array(sims[xy_min[0], xy_min[1], :4])
-        argmin_iou = np.array(ious)
+        argmin_iou = 1-np.array(ious)
         sim_base = self.inferences[xy_min[0]][xy_min[1]]
         sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(img).T) - self.rotation_pca.transform(sim_base.reshape(-1, 1))) ** 2).sum(axis=1)
         argmin_pca = np.array(sims_rot)

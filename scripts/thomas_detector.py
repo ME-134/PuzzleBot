@@ -1,6 +1,22 @@
 import cv2
 import numpy as np
 
+def get_piece_mask(img):
+    # Filter out background
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    background_lower = (0, 0, 80)
+    background_upper = (255, 30, 220)
+    binary = cv2.inRange(hsv, background_lower, background_upper)
+    
+    # Part of the image which is the puzzle pieces
+    blocks = 255 - binary
+    
+    # Remove noise
+    blocks = cv2.dilate(blocks, None, iterations=1)
+    blocks = cv2.erode(blocks, None, iterations=1)
+
+    return blocks
+
 class ThomasPuzzlePiece:
     def __init__(self, x, y, w, h, area):
         self.x = x
@@ -98,18 +114,7 @@ class ThomasDetector:
 
     def process(self, img):
 
-        # Filter out background
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        background_lower = (0, 0, 80)
-        background_upper = (255, 30, 220)
-        binary = cv2.inRange(hsv, background_lower, background_upper)
-        
-        # Part of the image which is the puzzle pieces
-        blocks = 255 - binary
-        
-        # Remove noise
-        blocks = cv2.dilate(blocks, None, iterations=1)
-        blocks = cv2.erode(blocks, None, iterations=1)
+        blocks = get_piece_mask(img)
         
         # Perform 2 iterations of eroding (by distance)
         piece_centers = blocks

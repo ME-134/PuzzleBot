@@ -8,16 +8,22 @@ import torch.nn as nn
 from torch.utils import data
 
 import torch.multiprocessing as mp
-from thomas_detector import ThomasDetector
+from thomas_detector import ThomasDetector, get_piece_mask
 from puzzle_grid import PuzzleGrid, get_xy_min
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+
 
 device = 'cpu'
 torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True)
 
 name = 'efficientnetTune5_epoch10'
-model = torch.load('/home/me134/me134ws/src/HW1/vision/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
-# model = torch.load('../vision/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
+vision_dir = '/home/me134/me134ws/src/HW1/vision'
+# vision_dir = '../vision'
+model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
+# model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512
+
 
 def run_model(img, image_size = 124):
     # import matplotlib.pyplot as plt
@@ -29,6 +35,24 @@ def run_model(img, image_size = 124):
     ref = torch.from_numpy(img[:image_size, :image_size, :].reshape(1, image_size, image_size, 3)).float().permute(0, 3, 1, 2).to(device)
     ref_pred = model(ref)
     return ref_pred.cpu().detach().numpy()
+
+def run_model_masked(img, image_size = 124):
+    img = cv2.resize(img, (image_size, image_size))
+    mask = get_piece_mask(img).reshape((image_size, image_size, 1)) > 128
+    img = img * mask
+    img = (img - img.mean()) / img.std()
+    # img = ((img / 255.0) - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
+    ref = torch.from_numpy(img[:image_size, :image_size, :].reshape(1, image_size, image_size, 3)).float().permute(0, 3, 1, 2).to(device)
+    ref_pred = model(ref)
+    return ref_pred.cpu().detach().numpy()
+
+def calc_iou(img1, img2, image_size = 124):
+    img1 = cv2.resize(img1, (image_size, image_size))
+    mask1 = get_piece_mask(img1)> 128
+    img2 = cv2.resize(img2, (image_size, image_size))
+    mask2 = get_piece_mask(img2) > 128
+    
+    return (mask1 * mask2).sum() / (mask1.sum() + mask2.sum())
 
 def cvt_color(img):
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -83,3 +107,45 @@ class VisionMatcher():
         
         xy_min = get_xy_min(sims[:, :].mean(axis = 2))
         return xy_min, np.argmin(sims[xy_min[0], xy_min[1], :4])
+    
+    def calculate_rotation_difference_vectors(self, img, ref):
+        sims = np.zeros((MODEL_OUT_DIM, 4))
+        ref_inference = run_model_masked(ref)
+        for k in range(4):
+            sims[:, k] = (ref_inference - run_model_masked(np.rot90(img, k = k)))
+        
+        return sims
+    
+    def calculate_rotation_vectors(self, img):
+        sims = np.zeros((MODEL_OUT_DIM, 4))
+        for k in range(4):
+            sims[:, k] = (run_model_masked(np.rot90(img, k = k)))
+        
+        return sims
+
+    def fit_rotation_pca(self, dims = 10):
+        imgs = glob(f'{vision_dir}/imgs/*.jpg')
+        all_vectors = []
+        for path in imgs:
+            img = cvt_color(cv2.imread(path))
+            vectors = self.calculate_rotation_vectors(img).T
+            for v in vectors:
+                all_vectors.append(v)
+
+        all_vectors = np.array(all_vectors)
+        self.rotation_pca = PCA(dims).fit(all_vectors)
+
+    def fit_rotation_logistic(self):
+        pass
+
+    def fit_pca(self, dims = 5):
+        all_vectors = []
+        for piece in self.pieces:
+            img = piece.img
+            v = run_model_masked(img)
+            all_vectors.append(v)
+
+        all_vectors = np.array(all_vectors)
+        self.pca = PCA(dims).fit(all_vectors)
+
+    

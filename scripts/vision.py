@@ -25,7 +25,8 @@ model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map
 MODEL_OUT_DIM = 512
 
 def norm(x):
-    return (x - x.min()) / (x.max() - x.min())
+    x = np.array(x)
+    return (x - x.min()) / (x.max() - x.min() + 0.0001)
 
 def run_model(img, image_size = 124):
     # import matplotlib.pyplot as plt
@@ -53,7 +54,11 @@ def calc_iou(img1, img2, image_size = 124):
     mask1 = get_piece_mask(img1)> 128
     img2 = cv2.resize(img2, (image_size, image_size))
     mask2 = get_piece_mask(img2) > 128
-    
+    import matplotlib.pyplot as plt
+    plt.imshow(img1)
+    plt.show()
+    plt.imshow(img2)
+    plt.show()
     return (mask1 * mask2).sum() / (mask1.sum() + mask2.sum())
 
 def cvt_color(img):
@@ -99,15 +104,15 @@ class VisionMatcher():
                 if(piece == None):
                     print("Missing piece", (row, col))
                 else:
-                    val = piece.natural_img * (piece.img.reshape(piece.img.shape[0], piece.img.shape[1], 1) > 128)
-                    self.inferences[row, col] = run_model(val)
+                    val = piece.natural_img #* (piece.img.reshape(piece.img.shape[0], piece.img.shape[1], 1) > 128)
+                    self.inferences[row, col] = run_model_masked(val)
         
         self.fit_rotation_pca()
             
     def calculate_xyrot(self, img):
         sims = np.zeros((self.width_n, self.height_n, 4))
         for k in range(4):
-            sims[:, :, k] = ((self.inferences - run_model(np.rot90(img, k = k))) ** 2).sum(axis = 2)
+            sims[:, :, k] = ((self.inferences - run_model_masked(np.rot90(img, k = k))) ** 2).sum(axis = 2)
         
         xy_min = get_xy_min(sims[:, :].mean(axis = 2))
 

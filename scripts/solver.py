@@ -176,7 +176,7 @@ class Solver:
 
                 # FIXME, this isn't quite right but is a good start
                 # piece_destination = target_piece.get_center()
-                val = cvt_color(piece.natural_img) * (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
+                val = cvt_color(piece.natural_img) #* (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
                 cords, rot = self.vision.calculate_xyrot(val)
                 rospy.loginfo(f"Piece Location: {cords}, Rotation: {rot}")
                 piece_destination = (cords[0] * 150 + 620, cords[1] * 150 + 370)

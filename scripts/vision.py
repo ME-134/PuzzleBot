@@ -106,7 +106,12 @@ class VisionMatcher():
             sims[:, :, k] = ((self.inferences - run_model(np.rot90(img, k = k))) ** 2).sum(axis = 2)
         
         xy_min = get_xy_min(sims[:, :].mean(axis = 2))
-        return xy_min, np.argmin(sims[xy_min[0], xy_min[1], :4])
+
+        base = self.piece_grid[xy_min[0], xy_min[1]].natural_img
+        ious = [calc_iou(np.rot90(img, k = k), base) for k in range(4)]
+        argmin_basic = np.argmin(sims[xy_min[0], xy_min[1], :4])
+        argmin_iou = np.argmin(ious)
+        return xy_min, argmin_iou
     
     def calculate_rotation_difference_vectors(self, img, ref):
         sims = np.zeros((MODEL_OUT_DIM, 4))
@@ -120,7 +125,6 @@ class VisionMatcher():
         sims = np.zeros((MODEL_OUT_DIM, 4))
         for k in range(4):
             sims[:, k] = (run_model_masked(np.rot90(img, k = k)))
-        
         return sims
 
     def fit_rotation_pca(self, dims = 10):

@@ -116,10 +116,8 @@ class VisionMatcher():
         argmin_basic = np.array(sims[xy_min[0], xy_min[1], :4])
         argmin_iou = 1-np.array(ious)
         sim_base = self.inferences[xy_min[0]][xy_min[1]]
-        sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(img).T) - self.rotation_pca.transform(sim_base.reshape(-1, 1))) ** 2).sum(axis=1)
+        sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(img).T) - self.rotation_pca.transform(sim_base.reshape(1, -1))) ** 2).sum(axis=1)
         argmin_pca = np.array(sims_rot)
-
-        
 
         return xy_min, np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca))
     
@@ -138,7 +136,7 @@ class VisionMatcher():
         return sims
 
     def fit_rotation_pca(self, dims = 10):
-        imgs = glob(f'{vision_dir}/imgs/*.jpg')
+        imgs = glob(f'{vision_dir}/imgs/good1*.jpg')
         all_vectors = []
         for path in imgs:
             img = cvt_color(cv2.imread(path))

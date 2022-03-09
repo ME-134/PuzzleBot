@@ -107,7 +107,7 @@ class VisionMatcher():
         
         xy_min = get_xy_min(sims[:, :].mean(axis = 2))
 
-        base = self.piece_grid[xy_min[0], xy_min[1]].natural_img
+        base = self.piece_grid[xy_min[0]][xy_min[1]].natural_img
         ious = [calc_iou(np.rot90(img, k = k), base) for k in range(4)]
         argmin_basic = np.argmin(sims[xy_min[0], xy_min[1], :4])
         argmin_iou = np.argmin(ious)

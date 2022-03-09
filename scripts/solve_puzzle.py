@@ -244,7 +244,7 @@ class Controller:
             if space == 'Joint':
                 hover_theta = self.ikin(hover, self.mean_theta)
                 rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
-                goal_theta = self.ikin(pgoal, hover_theta)
+                goal_theta = self.ikin(pgoal, hover_theta, step_size=.3)
                 rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
                 return goal_theta, hover_theta
             elif space == 'Task':
@@ -266,8 +266,8 @@ class Controller:
         splines.append(GotoSpline(origin_goal, origin_hover, space=space))
         splines.append(GotoSpline(origin_hover, dest_hover, space=space))
         if jiggle:
-            pos_offset = .004
-            rot_offset = .12
+            pos_offset = .005
+            rot_offset = .13
             duration = 5
             jiggle_height = 0.0
             x, y = piece_destination
@@ -347,6 +347,7 @@ class Controller:
                 goal_theta += np.array([np.pi,  np.pi/2,  0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
                 rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
+                goal_theta = self.ikin(goal_pos, goal_theta, fix=False)
 
             # Check if second axis is out of bounds, and correct
             if not Bounds.is_theta_valid(goal_theta, axis=1):
@@ -357,14 +358,25 @@ class Controller:
                 #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
                 rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
+                goal_theta = self.ikin(goal_pos, goal_theta, fix=False)
 
-            goal_theta = self.ikin(goal_pos, goal_theta)
+            # Check if second axis is out of bounds, and correct
+            if not Bounds.is_theta_valid(goal_theta, axis=2):
+                rospy.loginfo("Corrected 2nd axis of goal_theta")
+                rospy.loginfo(f"Old goal theta: {goal_theta.flatten()}")
+                # Only works if arms are similar lengths
+                goal_theta *= np.array([ 1, 1, -1, 1, 1]).reshape((5, 1))
+                goal_theta[2] = .1
+                #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
+                goal_theta = put_in_range(goal_theta)
+                rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
+                goal_theta = put_in_range(self.ikin(goal_pos, goal_theta, fix=False, step_size=.3))
 
         Bounds.assert_theta_valid(goal_theta)
 
         return goal_theta
 
-    def ikin(self, xgoal, theta_initialguess, return_J=False, max_iter=50, warning=True):
+    def ikin(self, xgoal, theta_initialguess, return_J=False, max_iter=50, step_size=1, warning=True, fix=True):
         # Start iterating from the initial guess
         theta = theta_initialguess
 
@@ -392,7 +404,7 @@ class Controller:
             e = np.vstack((e_p, e_R))
 
             # Take a step in the appropriate direction.
-            theta = theta + np.linalg.pinv(J) @ e
+            theta = theta + (np.linalg.pinv(J) @ e) * step_size
 
             # Return if we have converged.
             if (np.linalg.norm(e) < 1e-6):
@@ -403,7 +415,8 @@ class Controller:
             if warning:
                 raise RuntimeError(f"Unable to converge to {pgoal.flatten()}")
 
-        theta = self.fix_goal_theta(theta, xgoal)
+        if fix:
+            theta = self.fix_goal_theta(theta, xgoal)
 
 
         if return_J:

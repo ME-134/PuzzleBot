@@ -145,7 +145,7 @@ class Solver:
                 rospy.logwarn("[Solver] No pieces left to separate, continuing to next solver task.")
                 self.tasks.pop()
                 return self.apply_next_action(controller)
-                
+
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
             print(piece_origin, piece_destination)

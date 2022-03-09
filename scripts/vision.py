@@ -24,6 +24,8 @@ model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map
 # model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512
 
+def norm(x):
+    return (x - x.min()) / (x.max() - x.min())
 
 def run_model(img, image_size = 124):
     # import matplotlib.pyplot as plt
@@ -99,6 +101,8 @@ class VisionMatcher():
                 else:
                     val = piece.natural_img * (piece.img.reshape(piece.img.shape[0], piece.img.shape[1], 1) > 128)
                     self.inferences[row, col] = run_model(val)
+        
+        self.fit_rotation_pca()
             
     def calculate_xyrot(self, img):
         sims = np.zeros((self.width_n, self.height_n, 4))
@@ -109,9 +113,15 @@ class VisionMatcher():
 
         base = self.piece_grid[xy_min[0]][xy_min[1]].natural_img
         ious = [calc_iou(np.rot90(img, k = k), base) for k in range(4)]
-        argmin_basic = np.argmin(sims[xy_min[0], xy_min[1], :4])
-        argmin_iou = np.argmin(ious)
-        return xy_min, argmin_iou
+        argmin_basic = np.array(sims[xy_min[0], xy_min[1], :4])
+        argmin_iou = 1-np.array(ious)
+        sim_base = self.inferences[xy_min[0]][xy_min[1]]
+        sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(img).T) - self.rotation_pca.transform(sim_base.reshape(-1, 1))) ** 2).sum(axis=1)
+        argmin_pca = np.array(sims_rot)
+
+        
+
+        return xy_min, np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca))
     
     def calculate_rotation_difference_vectors(self, img, ref):
         sims = np.zeros((MODEL_OUT_DIM, 4))

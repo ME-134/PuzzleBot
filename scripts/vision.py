@@ -171,12 +171,13 @@ class VisionMatcher():
             scores = np.zeros((len(pieces), self.width_n, self.height_n, 4))
             for i, piece in enumerate(pieces):
                 for k in range(4):
-                    scores[i, :, :, k] = ((self.inferences - run_model_masked(np.rot90(piece.img, k = k))) ** 2).sum(axis = 2)
-                scores = scores.mean(axis=3)
+                    scores[i, :, :, k] = ((self.inferences - run_model_masked(np.rot90(piece.natural_img, k = k))) ** 2).sum(axis = 2)
+            scores = scores.mean(axis=3)
             
             locations = np.zeros((len(pieces), 2))    
-            for i in range(pieces):
-                k, x, y = np.argmin(scores)
+            for i in range(len(pieces)):
+                print(np.argmin(scores, axis=-1))
+                k, x, y = np.argmin(scores, axis=-1)
                 locations[k] = np.array([x, y])
                 scores[:, x, y] = np.inf
                 scores[k, :, :] = np.inf

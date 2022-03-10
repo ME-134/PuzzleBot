@@ -226,13 +226,24 @@ class Controller:
         splines.append(GotoSpline(hover_theta, goal_theta, space=space))
         self.change_segments([splines])
 
-    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint'):
+    def test_connectivity(self):
+        '''
+        Tests if a puzzle piece is connected'''
+        # TODO
+        pass
+
+    def move_weight(self, weight_destination, pickup_height=.01):
+        '''
+        Moves weight to a position on top of a puzzle piece'''
+        weight_origin = self.detector.find_aruco(4)
+        self.move_piece(weight_origin, weight_destination, pickup_height=pickup_height, hover_amount=.06, place_height=.012)
+
+    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=None):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
-        
-        pickup_height = -0.005
-        hover_amount  = 0.06
-
+        if place_height is None:
+            # Pickup and place same height by default
+            place_height = pickup_height        
         # move from current pos to piece_origin
         def get_piece_and_hover_thetas(pixel_coords, turn=0):
             x, y = pixel_coords

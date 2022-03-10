@@ -219,6 +219,19 @@ class Detector:
         # Crops unnecessary parts of the image out
         return img[:, 200:, :]
 
+    def find_aruco(self, index):
+        '''
+        Finds an Aruco marker with id index'''
+        image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
+        image = self.crop_raw(self.bridge.imgmsg_to_cv2(image_msg, "bgr8"))
+
+        (all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
+        all_corners = np.array(all_corners).reshape((-1,2))
+        ids = ids.flatten()
+        i = ids.index(index)
+        return all_corners[i*4:i*4+4].mean(axis=0)
+
+
     def init_aruco(self):
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
         image = self.crop_raw(self.bridge.imgmsg_to_cv2(image_msg, "bgr8"))
@@ -232,10 +245,8 @@ class Detector:
         #all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
 
-        if len(all_corners) != 16:
-            rospy.loginfo(all_corners)
-            rospy.loginfo(ids)
-            raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)))
+        if len(all_corners) != 20:
+            raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)) + "\nIds found:" + ids)
 
         #Real Coordinates
         world1 = np.array([-.4325, -.1519])
@@ -247,21 +258,20 @@ class Detector:
         box2 = all_corners[4:8]
         box3 = all_corners[8:12]
         box4 = all_corners[12:16]
+        box5 = all_corners[16:20]
 
         screen1 = np.mean(box1, axis=0)
         screen2 = np.mean(box2, axis=0)
         screen3 = np.mean(box3, axis=0)
         screen4 = np.mean(box4, axis=0)
+        screen5 = np.mean(box5, axis=0)
 
         ids = ids.flatten()
         ids_reorder = np.zeros_like(ids)
-        for i in range(len(ids)):
+        for i in range(4):
             ids_reorder[i] = np.where(ids == i)[0]
-        screens = np.float32([screen1, screen2, screen3, screen4])[ids_reorder]
+        screens = np.float32([screen1, screen2, screen3, screen4, screen5])[ids_reorder]
         worlds = np.float32([world1, world2, world3, world4])
-
-        print(screens)
-        print(worlds)
 
         self.transform = cv2.getPerspectiveTransform(screens, worlds)
 

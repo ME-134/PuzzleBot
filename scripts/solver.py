@@ -12,6 +12,7 @@ from sensor_msgs.msg   import Image
 import numpy as np
 
 from thomas_detector import ThomasDetector, ThomasPuzzlePiece
+from puzzle_grid import PuzzleGrid
 import vision
 
 class SolverTask(enum.Enum):
@@ -38,12 +39,12 @@ class Solver:
         self.tasks.append(SolverTask.SeparatePieces)
         self.tasks.append(SolverTask.GetView)
 
-        # Series of moves to perform
-        self.move_queue = []
+        # Series of actions to perform
+        self.action_queue = []
 
+        self.puzzle_grid = PuzzleGrid()
         self.num_pieces = 20
         self.pieces_cleared = 0
-        self.separated_grid = np.zeros((4, 5))
         self.separated_loc = np.array([220, 100])
         self.separated_spacing = 100
         self.pieces_solved = 0
@@ -103,6 +104,10 @@ class Solver:
 
     def apply_next_action(self, controller):
 
+        if self.action_queue:
+            f = self.action_queue.pop(0)
+            f()
+
         if not self.tasks:
             rospy.loginfo("[Solver] No current tasks, sending Idle command.")
             controller.idle()
@@ -151,8 +156,6 @@ class Solver:
 
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
-            print(piece_origin, piece_destination)
-            #piece_destination = (300, 300)
             controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
             return
 
@@ -182,8 +185,15 @@ class Solver:
                 val = cvt_color(piece.natural_img) #* (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
                 coords, rot = self.vision.calculate_xyrot(val)
                 rospy.loginfo(f"Piece Location: {coords}, Rotation: {rot}")
-                piece_destination = (coords[0] * 150 + 620, coords[1] * 150 + 370)
-                controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True)
+                piece_destination = np.array(self.get_puzzle_region[[0, 1]]) + self.puzzle_grid.get_pixel_from_grid(coords)
+                if self.puzzle_grid.occupied.sum() > 0:
+                    weight_destination = self.puzzle_grid.get_neighbor(coords)
+                    weight_pos_offset = np.array(weight_destination) - np.array(coords)
+                    weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
+                    controller.move_weight(weight_destination)
+                    self.action_queue.append(lambda: controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True))
+                else:
+                    controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=False)
                 return
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             raise NotImplementedError()

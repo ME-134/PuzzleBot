@@ -38,6 +38,9 @@ class Solver:
         self.tasks.append(SolverTask.SeparatePieces)
         self.tasks.append(SolverTask.GetView)
 
+        # Series of moves to perform
+        self.move_queue = []
+
         self.num_pieces = 20
         self.pieces_cleared = 0
         self.separated_grid = np.zeros((4, 5))
@@ -177,9 +180,9 @@ class Solver:
                 # FIXME, this isn't quite right but is a good start
                 # piece_destination = target_piece.get_center()
                 val = cvt_color(piece.natural_img) #* (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
-                cords, rot = self.vision.calculate_xyrot(val)
-                rospy.loginfo(f"Piece Location: {cords}, Rotation: {rot}")
-                piece_destination = (cords[0] * 150 + 620, cords[1] * 150 + 370)
+                coords, rot = self.vision.calculate_xyrot(val)
+                rospy.loginfo(f"Piece Location: {coords}, Rotation: {rot}")
+                piece_destination = (coords[0] * 150 + 620, coords[1] * 150 + 370)
                 controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True)
                 return
         elif curr_task == SolverTask.SeparateOverlappingPieces:

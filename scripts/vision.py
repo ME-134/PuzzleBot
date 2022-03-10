@@ -18,8 +18,8 @@ device = 'cpu'
 torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True)
 
 name = 'efficientnetTune5_epoch10'
-vision_dir = '/home/me134/me134ws/src/HW1/vision'
-# vision_dir = '../vision'
+# vision_dir = '/home/me134/me134ws/src/HW1/vision'
+vision_dir = '../vision'
 model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 # model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512
@@ -164,5 +164,28 @@ class VisionMatcher():
 
         all_vectors = np.array(all_vectors)
         self.pca = PCA(dims).fit(all_vectors)
+
+    def match_all(self, pieces, method='greedy', order=True):
+        # Greedily finds a 1-to-1 matching of pieces to reference pieces
+        if method == 'greedy':
+            scores = np.zeros((len(pieces), self.width_n, self.height_n, 4))
+            for i, piece in enumerate(pieces):
+                for k in range(4):
+                    scores[i, :, :, k] = ((self.inferences - run_model_masked(np.rot90(piece.img, k = k))) ** 2).sum(axis = 2)
+                scores = scores.mean(axis=3)
+            
+            locations = np.zeros((len(pieces), 2))    
+            for i in range(pieces):
+                k, x, y = np.argmin(scores)
+                locations[k] = np.array([x, y])
+                scores[:, x, y] = np.inf
+                scores[k, :, :] = np.inf
+
+            if order:
+                pass
+
+            return locations  # locations[i] gives grid location of piece i
+        else:
+            raise Exception("Not Implemented")
 
     

@@ -43,9 +43,9 @@ class ThomasPuzzlePiece:
     def is_valid(self):
         if not (2000 < self.area):
             return False
-        if not (50 < self.width):
+        if not (100 < self.width):
             return False
-        if not (50 < self.height):
+        if not (100 < self.height):
             return False
         return True
 

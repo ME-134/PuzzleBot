@@ -166,26 +166,34 @@ class VisionMatcher():
         self.pca = PCA(dims).fit(all_vectors)
 
     def match_all(self, pieces, method='greedy', order=True):
-        # Greedily finds a 1-to-1 matching of pieces to reference pieces
+        ''' Greedily finds a 1-to-1 matching of pieces to reference pieces
+        Score is inf if no match found
+        '''
         if method == 'greedy':
             scores = np.zeros((len(pieces), self.width_n, self.height_n, 4))
             for i, piece in enumerate(pieces):
                 for k in range(4):
                     scores[i, :, :, k] = ((self.inferences - run_model_masked(np.rot90(piece.natural_img, k = k))) ** 2).sum(axis = 2)
             scores = scores.mean(axis=3)
+            match_scores = np.zeros((len(pieces))) + np.inf
             
-            locations = np.zeros((len(pieces), 2))    
-            for i in range(len(pieces)):
-                print(np.argmin(scores, axis=-1))
-                k, x, y = np.argmin(scores, axis=-1)
-                locations[k] = np.array([x, y])
-                scores[:, x, y] = np.inf
+            locations = np.zeros((len(pieces), 2))
+            for i in range(min(len(pieces), self.width_n*self.height_n)):
+                best = np.argmin(scores)
+                k = best // (self.width_n*self.height_n)
+                x = (best - k*(self.width_n*self.height_n)) // self.height_n
+                y = (best - k*(self.width_n*self.height_n) - x*self.height_n)
+                if pieces[k].is_valid():
+                    locations[k] = np.array([x, y])
+                    match_scores[k] = scores[k,x,y]
+                    scores[:, x, y] = np.inf
+                else:
+                    match_scores[k] = np.inf
                 scores[k, :, :] = np.inf
-
             if order:
                 pass
 
-            return locations  # locations[i] gives grid location of piece i
+            return locations, match_scores  # locations[i] gives grid location of piece i
         else:
             raise Exception("Not Implemented")
 

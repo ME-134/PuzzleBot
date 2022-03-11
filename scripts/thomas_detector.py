@@ -73,14 +73,15 @@ class ThomasPuzzlePiece:
             return True
         return False
     
-    def get_bounding_box(self, threshold = 100, erosion = 3, dilation = 3, filter_iters = 1):
+    def get_bounding_box(self, threshold = 100, erosion = 3, dilation = 3, filter_iters = 0):
         # Compute a contour and then use the largest countour to build a bounding box
         filtered = self.img
         for i in range(filter_iters):
             filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
             filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
 
-        corner_vals = cv2.cornerHarris(filtered,7,5,0.07) > 1
+
+        corner_vals = cv2.cornerHarris(filtered,7,7,0.09) > 1.5
         corners = []
         for i in range(corner_vals.shape[0]):
             for j in range(corner_vals.shape[1]):
@@ -90,19 +91,42 @@ class ThomasPuzzlePiece:
         rect = cv2.minAreaRect(corners)
         self.box_raw = cv2.boxPoints(rect)
         
+        return self.box_raw
+
+    def get_bounding_box_contour(self, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2):
+        # Compute a contour and then use the largest countour to build a bounding box
+        filtered = self.img
+        for i in range(filter_iters):
+            filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
+            filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
+        
         # Old contour based box:
-        # contours, hierarchy = cv2.findContours(filtered, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        # biggest_contour = max(contours, key = cv2.contourArea)
-        # rect = cv2.minAreaRect(biggest_contour)
-        # self.box_raw = cv2.boxPoints(rect)
+        contours, hierarchy = cv2.findContours(filtered, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        biggest_contour = max(contours, key = cv2.contourArea)
+        rect = cv2.minAreaRect(biggest_contour)
+        self.box_raw = cv2.boxPoints(rect)
         
         return self.box_raw
     
-    def get_rotation_to_align(self, compute_bounding_box = False, box_raw = None):
+    def get_rotation_to_align(self, compute_bounding_box = False, box_raw = None, maxWidth = 100, maxHeight = 100):
         # Use the vector of the top of the bounding box to orient the piece. 
         if compute_bounding_box:
-            self.get_bounding_box()
-        if (box_raw == None):
+            corner_box = self.get_bounding_box()
+            contour_box = self.get_bounding_box_contour()
+            dst = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype = "float32")
+            M = cv2.getPerspectiveTransform(corner_box.astype(np.float32), dst)
+            warped_corner = cv2.warpPerspective(self.img.copy(), M, (100, 100))
+            M = cv2.getPerspectiveTransform(contour_box.astype(np.float32), dst)
+            warped_contour = cv2.warpPerspective(self.img.copy(), M, (100, 100))
+
+            if (warped_corner.mean() > (warped_contour.mean() + 0.25)):
+                self.box_raw = corner_box
+                box_raw = corner_box
+            else:
+                self.box_raw = contour_box
+                box_raw = contour_box
+
+        if (box_raw is None):
             box_raw = self.box_raw
             
         top_line_vector = box_raw[1] - box_raw[0]
@@ -200,12 +224,12 @@ class ThomasDetector:
                             piece = existing_piece
                             break
                 pieces.append(piece)
-                cutout_img = blocks[max(ymin-20,0):ymin+height+20, max(xmin-20,0):xmin+width+20].copy()
+                cutout_img = blocks[max(ymin-10,0):ymin+height+10, max(xmin-10,0):xmin+width+10].copy()
                 piece.set_img(cutout_img)
 
                 y_max, x_max = blocks.shape[:2]
-                cutout_img = img[max(ymin-20,0):min(ymin+height+20, y_max),
-                                    max(xmin-20,0):min(xmin+width+20, x_max)].copy()
+                cutout_img = img[max(ymin-10,0):min(ymin+height+10, y_max),
+                                    max(xmin-10,0):min(xmin+width+10, x_max)].copy()
                 piece.set_natural_img(cutout_img)
 
         for piece in pieces:

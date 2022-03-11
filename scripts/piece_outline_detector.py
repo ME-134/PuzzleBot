@@ -99,6 +99,8 @@ class PuzzlePiece:
         self.natural_img = natural_img
     def get_color(self):
         return self.color
+    def get_location(self):
+        return (self.x_center, self.y_center)
 
     def __repr__(self):
         return f"<Puzzle Piece at (x={self.x_center}, y={self.y_center}), width={self.width}, height={self.height} with color={self.color}>"
@@ -245,8 +247,8 @@ class Detector:
         #all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
 
-        if len(all_corners) != 20:
-            raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)) + "\nIds found:" + ids)
+        if len(all_corners) != 16:
+            raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)) + "\nIds found:" + str(ids))
 
         #Real Coordinates
         world1 = np.array([-.4325, -.1519])
@@ -267,7 +269,7 @@ class Detector:
         screen5 = np.mean(box5, axis=0)
 
         ids = ids.flatten()
-        ids_reorder = np.zeros_like(ids)
+        ids_reorder = np.zeros((4)).astype(int)
         for i in range(4):
             ids_reorder[i] = np.where(ids == i)[0]
         screens = np.float32([screen1, screen2, screen3, screen4, screen5])[ids_reorder]

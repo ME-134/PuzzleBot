@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from ast import arg
 import enum
 
 import rospy
@@ -92,7 +93,7 @@ class Solver:
                 if self.pieces_solved == self.num_pieces:
                     rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
                     self.tasks.pop()
-                self.tasks.append(SolverTask.GetView)
+                # self.tasks.append(SolverTask.GetView)
             else:
                 raise NotImplementedError()
 
@@ -139,7 +140,7 @@ class Solver:
 
                 print("rotation offset: ", rotation_offset)
                 ### END TEMP
-                threshold_rotation_error = 0.1
+                threshold_rotation_error = 0.175
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
                 if piece.overlaps_with_region(self.get_puzzle_region()):
@@ -164,52 +165,58 @@ class Solver:
                 f()
                 return
 
-            locations, rots, scores = vision.match_all(self.piece_list)
+            locations, rots, scores = self.vision.match_all(self.piece_list)
             first = True
             for i in range(len(self.piece_list)):
                 if scores[i] < 99999:
-                    weight_destination = self.puzzle_grid.get_neighbor(locations[i])
-                    weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
-                    weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
-                    controller.move_weight(weight_destination)
+                    loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
                     if first:
-                        controller.move_weight(weight_destination)
-                        self.action_queue.append(lambda: controller.move_piece(self.piece_list[i].get_location(), locations[i], turn = rots[i]*np.pi/2, jiggle=False))
+                        controller.move_piece(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False)
+                        first = False
                     else:
-                        self.action_queue.append(lambda: controller.move_weight(weight_destination))
-                        self.action_queue.append(lambda: controller.move_piece(self.piece_list[i].get_location(), locations[i], turn = rots[i]*np.pi/2, jiggle=True))
-                    first = False
+                        # weight_destination = self.puzzle_grid.get_neighbor(locations[i])
+                        # weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
+                        # weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
+                        class call_me():
+                            def __init__(self, *args, **kwargs):
+                                self.args = args
+                                self.kwargs = kwargs
+                            def __call__(self):
+                                controller.move_piece(*self.args, **self.kwargs)
+                        # self.action_queue.append(call_me(controller.move_weight(weight_destination)))
+                        self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=True))
+
             # target_piece = self.reference_pieces[self.pieces_solved]
-            for piece in self.piece_list:
-                if piece.fully_contained_in_region(self.get_puzzle_region()):
-                    continue
-            #     if self.pieces_match(piece.img, target_piece.img):
-            #         break
-            # else:
-            #     # Error, no piece found!
-            #     rospy.logwarn(f"[Solver] Target piece #{self.peices_solved} not found! Getting a new view.")
+            # for piece in self.piece_list:
+            #     if piece.fully_contained_in_region(self.get_puzzle_region()):
+            #         continue
+            # #     if self.pieces_match(piece.img, target_piece.img):
+            # #         break
+            # # else:
+            # #     # Error, no piece found!
+            # #     rospy.logwarn(f"[Solver] Target piece #{self.peices_solved} not found! Getting a new view.")
 
-            #     # Attempt to recover by getting another view of the camera
-            #     self.tasks.append(SolverTask.GetView)
-            #     return self.apply_next_action(controller)
+            # #     # Attempt to recover by getting another view of the camera
+            # #     self.tasks.append(SolverTask.GetView)
+            # #     return self.apply_next_action(controller)
 
-                piece_origin = piece.get_center()
+            #     piece_origin = piece.get_center()
 
-                # FIXME, this isn't quite right but is a good start
-                # piece_destination = target_piece.get_center()
-                val = cvt_color(piece.natural_img) #* (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
-                coords, rot = self.vision.calculate_xyrot(val)
-                rospy.loginfo(f"Piece Location: {coords}, Rotation: {rot}")
-                piece_destination = np.array(self.get_puzzle_region[[0, 1]]) + self.puzzle_grid.get_pixel_from_grid(coords)
-                if self.puzzle_grid.occupied.sum() > 0:
-                    weight_destination = self.puzzle_grid.get_neighbor(coords)
-                    weight_pos_offset = np.array(weight_destination) - np.array(coords)
-                    weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
-                    controller.move_weight(weight_destination)
-                    self.action_queue.append(lambda: controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True))
-                else:
-                    controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=False)
-                return
+            #     # FIXME, this isn't quite right but is a good start
+            #     # piece_destination = target_piece.get_center()
+            #     val = cvt_color(piece.natural_img) #* (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
+            #     coords, rot = self.vision.calculate_xyrot(val)
+            #     rospy.loginfo(f"Piece Location: {coords}, Rotation: {rot}")
+            #     piece_destination = np.array(self.get_puzzle_region[[0, 1]]) + self.puzzle_grid.get_pixel_from_grid(coords)
+            #     if self.puzzle_grid.occupied.sum() > 0:
+            #         weight_destination = self.puzzle_grid.get_neighbor(coords)
+            #         weight_pos_offset = np.array(weight_destination) - np.array(coords)
+            #         weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
+            #         controller.move_weight(weight_destination)
+            #         self.action_queue.append(lambda: controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True))
+            #     else:
+            #         controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=False)
+            #     return
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             raise NotImplementedError()
 
@@ -246,6 +253,14 @@ class Solver:
         '''
         # TODO
         return (600, 350, 1680, 980)
+
+    def get_puzzle_keepouts(self):
+        '''
+        Return (xmin, ymin, xmax, ymax) in pixel space
+        representing the region where we want the solved puzzle to end up.
+        '''
+        
+        return 0
 
     def get_screen_region(self):
         return (0, 0, 1780, 1080)
@@ -291,7 +306,7 @@ class Solver:
                     break # assume puzzle region is in the bottom-right
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice(padding=10)]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=20)]):
                     dummy_piece = dummy_piece_copy.copy()
                     dummy_piece.move_to(x, y)
 

@@ -18,8 +18,8 @@ device = 'cpu'
 torch.hub.load('rwightman/gen-efficientnet-pytorch', 'tf_efficientnet_b2_ns', pretrained=True)
 
 name = 'efficientnetTune5_epoch10'
-# vision_dir = '/home/me134/me134ws/src/HW1/vision'
-vision_dir = '../vision'
+vision_dir = '/home/me134/me134ws/src/HW1/vision'
+# vision_dir = '../vision'
 model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 # model = torch.load(f'{vision_dir}/checkpoints/efficientnetTune5_epoch10.cp', map_location=torch.device('cpu')).eval().to(device)
 MODEL_OUT_DIM = 512

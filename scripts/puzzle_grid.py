@@ -61,13 +61,13 @@ class PuzzleGrid():
         '''
             Returns neighbor in completed puzzle
         '''
-        if self.occupied[loc[0]+1, loc[1]] != 0:
+        if loc[0]+1 < self.width_n and self.occupied[loc[0]+1, loc[1]] != 0:
             return [loc[0]+1, loc[1]]
-        if self.occupied[loc[0]-1, loc[1]] != 0:
+        if loc[0]-1 > 0 and self.occupied[loc[0]-1, loc[1]] != 0:
             return [loc[0]-1, loc[1]]
-        if self.occupied[loc[0], loc[1]+1] != 0:
+        if loc[1]+1 < self.height_n and self.occupied[loc[0], loc[1]+1] != 0:
             return [loc[0], loc[1]+1]
-        if self.occupied[loc[0], loc[1]-1] != 0:
+        if loc[1]-1 < 0 and self.occupied[loc[0], loc[1]-1] != 0:
             return [loc[0], loc[1]-1]
         return None
 
@@ -75,17 +75,17 @@ class PuzzleGrid():
         '''
             Checks if a grid location mates with the completed puzzle so far
         '''
-        if self.occupied[loc[0]+1, loc[1]] != 0:
+        if loc[0]+1 < self.width_n and self.occupied[loc[0]+1, loc[1]] != 0:
             return True
-        if self.occupied[loc[0]-1, loc[1]] != 0:
+        if loc[0]-1 > 0 and self.occupied[loc[0]-1, loc[1]] != 0:
             return True
-        if self.occupied[loc[0], loc[1]+1] != 0:
+        if loc[1]+1 < self.height_n and self.occupied[loc[0], loc[1]+1] != 0:
             return True
-        if self.occupied[loc[0], loc[1]-1] != 0:
+        if loc[1]-1 > 0 and self.occupied[loc[0], loc[1]-1] != 0:
             return True
         return False
 
-    def get_pixel_from_grid(self, loc):
+    def grid_to_pixel(self, loc):
         '''
             Returns position in pixel space for a piece on the grid
         '''

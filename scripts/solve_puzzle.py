@@ -50,7 +50,7 @@ class State(enum.Enum):
     reset  = 2
     pickup = 3
 
-motor_names = ['Thor/1', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
+motor_names = ['Thor/0', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
 
 class IKinException(Exception):
     pass
@@ -164,6 +164,7 @@ class Controller:
         # Point where the robot resets to
         self.reset_pos = np.array([ 0.157, -0.094, 0.25, 0, 0]).reshape((5,1))
         self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
+        self.left_theta = np.array([.787, 1.025, 1.922, -0.888, -1.478]).reshape((5,1))
 
         # Subscriber which listens to the motors' positions and velocities
         # Used for touch detection and gravity compensation
@@ -238,7 +239,7 @@ class Controller:
         weight_origin = self.detector.find_aruco(4)
         self.move_piece(weight_origin, weight_destination, pickup_height=pickup_height, hover_amount=.06, place_height=.012)
 
-    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=None):
+    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.008):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         if place_height is None:
@@ -277,7 +278,7 @@ class Controller:
         splines.append(GotoSpline(origin_goal, origin_hover, space=space))
         splines.append(GotoSpline(origin_hover, dest_hover, space=space))
         if jiggle:
-            pos_offset = .005
+            pos_offset = .0065
             rot_offset = .13
             duration = 5
             jiggle_height = 0.0
@@ -286,7 +287,7 @@ class Controller:
             pgoal1 = np.array([x - pos_offset, y - pos_offset, jiggle_height, turn - rot_offset, 0]).reshape((5, 1))
             pgoal2 = np.array([x + pos_offset, y + pos_offset, jiggle_height, turn + rot_offset, 0]).reshape((5, 1))
             phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
-            freq = np.array([1, 1, .5, .6, .5]).reshape((5, 1))
+            freq = np.array([1, 1, .5, 1.4, .5]).reshape((5, 1))
             jiggle_movement = SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
             hover = np.array([x, y, pickup_height + hover_amount, turn, 0]).reshape((5, 1))
@@ -301,7 +302,8 @@ class Controller:
                 jiggle_theta = self.ikin(p, dest_goal)
             elif space == 'Task':
                 jiggle_theta = jiggle_movement
-            splines.append(SafeCubicSpline(jiggle_theta, 0, dest_hover, 0, 2, space=space))
+            splines.append(SafeCubicSpline(jiggle_theta, 0, dest_goal, 0, 1, space=space))
+            splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))
         else:
             splines.append(GotoSpline(dest_hover, dest_goal, space=space))
             splines.append(FuncSegment(lambda: self.set_pump(False)))
@@ -358,7 +360,7 @@ class Controller:
                 goal_theta += np.array([np.pi,  np.pi/2,  0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
                 rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
-                goal_theta = self.ikin(goal_pos, goal_theta, fix=False)
+                goal_theta = put_in_range(self.ikin(goal_pos, goal_theta, fix=False))
 
             # Check if second axis is out of bounds, and correct
             if not Bounds.is_theta_valid(goal_theta, axis=1):
@@ -369,7 +371,7 @@ class Controller:
                 #goal_theta += np.array([0, 0, 0, 0, 0]).reshape((5, 1))
                 goal_theta = put_in_range(goal_theta)
                 rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
-                goal_theta = self.ikin(goal_pos, goal_theta, fix=False)
+                goal_theta = put_in_range(self.ikin(goal_pos, goal_theta, fix=False))
 
             # Check if second axis is out of bounds, and correct
             if not Bounds.is_theta_valid(goal_theta, axis=2):
@@ -382,6 +384,12 @@ class Controller:
                 goal_theta = put_in_range(goal_theta)
                 rospy.loginfo(f"New goal theta: {goal_theta.flatten()}")
                 goal_theta = put_in_range(self.ikin(goal_pos, goal_theta, fix=False, step_size=.3))
+
+        if not Bounds.is_theta_valid(goal_theta):
+            goal_theta = put_in_range(self.ikin(goal_pos, self.mean_theta, fix=False))
+
+        if not Bounds.is_theta_valid(goal_theta):
+            goal_theta = put_in_range(self.ikin(goal_pos, self.left_theta, fix=False))
 
         Bounds.assert_theta_valid(goal_theta)
 

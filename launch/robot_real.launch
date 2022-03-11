@@ -18,7 +18,7 @@
 	required="true">
     <rosparam>
       family: "Thor"
-      names: ["1", "6", "3", "4", "2"]
+      names: ["0", "6", "3", "4", "2"]
     </rosparam>
   </node>
   

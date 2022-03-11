@@ -199,9 +199,8 @@ class ThomasDetector:
                 piece.set_natural_img(cutout_img)
 
         for piece in pieces:
-            r = 5#int(np.sqrt(piece.area) / 4) + 1
+            r = int(np.sqrt(piece.area) / 5) + 1
             color = piece.get_color()
-            color = (255,255,0)
             cv2.circle(img, piece.get_location(), r, color, -1)
             piece_centers.append(piece.get_location())
 

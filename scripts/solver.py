@@ -104,10 +104,6 @@ class Solver:
 
     def apply_next_action(self, controller):
 
-        if self.action_queue:
-            f = self.action_queue.pop(0)
-            f()
-
         if not self.tasks:
             rospy.loginfo("[Solver] No current tasks, sending Idle command.")
             controller.idle()
@@ -160,10 +156,29 @@ class Solver:
             return
 
         elif curr_task == SolverTask.PutPiecesTogether:
-            # All pieces should now be on the border and oriented correctly.
+            # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
             rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
+            if self.action_queue:
+                f = self.action_queue.pop(0)
+                f()
+                return
 
+            locations, rots, scores = vision.match_all(self.piece_list)
+            first = True
+            for i in range(len(self.piece_list)):
+                if scores[i] < 99999:
+                    weight_destination = self.puzzle_grid.get_neighbor(locations[i])
+                    weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
+                    weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
+                    controller.move_weight(weight_destination)
+                    if first:
+                        controller.move_weight(weight_destination)
+                        self.action_queue.append(lambda: controller.move_piece(self.piece_list[i].get_location(), locations[i], turn = rots[i]*np.pi/2, jiggle=False))
+                    else:
+                        self.action_queue.append(lambda: controller.move_weight(weight_destination))
+                        self.action_queue.append(lambda: controller.move_piece(self.piece_list[i].get_location(), locations[i], turn = rots[i]*np.pi/2, jiggle=True))
+                    first = False
             # target_piece = self.reference_pieces[self.pieces_solved]
             for piece in self.piece_list:
                 if piece.fully_contained_in_region(self.get_puzzle_region()):

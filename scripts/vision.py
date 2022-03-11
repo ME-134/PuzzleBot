@@ -55,10 +55,10 @@ def calc_iou(img1, img2, image_size = 124):
     img2 = cv2.resize(img2, (image_size, image_size))
     mask2 = get_piece_mask(img2) > 128
     import matplotlib.pyplot as plt
-    plt.imshow(img1)
-    plt.show()
-    plt.imshow(img2)
-    plt.show()
+    # plt.imshow(img1)
+    # plt.show()
+    # plt.imshow(img2)
+    # plt.show()
     return (mask1 * mask2).sum() / (mask1.sum() + mask2.sum())
 
 def cvt_color(img):
@@ -170,14 +170,14 @@ class VisionMatcher():
         Score is inf if no match found
         '''
         if method == 'greedy':
-            scores = np.zeros((len(pieces), self.width_n, self.height_n, 4))
+            scores_all = np.zeros((len(pieces), self.width_n, self.height_n, 4))
             for i, piece in enumerate(pieces):
                 for k in range(4):
-                    scores[i, :, :, k] = ((self.inferences - run_model_masked(np.rot90(piece.natural_img, k = k))) ** 2).sum(axis = 2)
-            scores = scores.mean(axis=3)
+                    scores_all[i, :, :, k] = ((self.inferences - run_model_masked(np.rot90(piece.natural_img, k = k))) ** 2).sum(axis = 2)
+            scores = scores_all.mean(axis=3)
             match_scores = np.zeros((len(pieces))) + np.inf
             
-            locations = np.zeros((len(pieces), 2))
+            locations = np.zeros((len(pieces), 2)).astype(int)
             for i in range(min(len(pieces), self.width_n*self.height_n)):
                 best = np.argmin(scores)
                 k = best // (self.width_n*self.height_n)
@@ -192,8 +192,19 @@ class VisionMatcher():
                 scores[k, :, :] = np.inf
             if order:
                 pass
+            
+            rots = np.zeros((len(pieces)))
+            for i in range(len(pieces)):
+                base = self.piece_grid[locations[i, 0]][locations[i, 1]].natural_img
+                ious = [calc_iou(np.rot90(pieces[i].natural_img, k = k), base) for k in range(4)]
+                argmin_basic = np.array(scores_all[i, locations[i, 0], locations[i, 1], :4])
+                argmin_iou = 1-np.array(ious)
+                sim_base = self.inferences[locations[i, 0]][locations[i, 1]]
+                sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(pieces[i].natural_img).T) - self.rotation_pca.transform(sim_base.reshape(1, -1))) ** 2).sum(axis=1)
+                argmin_pca = np.array(sims_rot)
 
-            return locations, match_scores  # locations[i] gives grid location of piece i
+                rots[i] = np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca))
+            return locations, rots, match_scores  # locations[i] gives grid location of piece i
         else:
             raise Exception("Not Implemented")
 

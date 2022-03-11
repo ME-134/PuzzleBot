@@ -81,7 +81,7 @@ class PuzzleGrid():
             return True
         if loc[1]+1 < self.height_n and self.occupied[loc[0], loc[1]+1] != 0:
             return True
-        if loc[1]-1 < 0 and self.occupied[loc[0], loc[1]-1] != 0:
+        if loc[1]-1 > 0 and self.occupied[loc[0], loc[1]-1] != 0:
             return True
         return False
 

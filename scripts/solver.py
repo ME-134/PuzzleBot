@@ -160,31 +160,38 @@ class Solver:
             # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
             rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
+            class call_me():
+                def __init__(self, *args, **kwargs):
+                    self.args = args
+                    self.kwargs = kwargs
+                def __call__(self):
+                    controller.move_piece(*self.args, **self.kwargs)
+            print(self.action_queue)
             if self.action_queue:
                 f = self.action_queue.pop(0)
                 f()
                 return
 
             locations, rots, scores = self.vision.match_all(self.piece_list)
-            first = True
-            for i in range(len(self.piece_list)):
-                if scores[i] < 99999:
-                    loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
-                    if first:
-                        controller.move_piece(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False)
-                        first = False
-                    else:
+            loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[0])
+            controller.move_piece(self.piece_list[0].get_location(), loc, turn = rots[0]*np.pi/2, jiggle=False)
+            self.puzzle_grid.occupied[tuple(locations[0])] = 1
+            done = False
+            while not done:
+                done = True
+                for i in range(1, len(self.piece_list)):
+                    # Puts pieces in an order where they mate
+                    if scores[i] < 99999 and self.puzzle_grid.occupied[tuple(locations[i])] == 0 and self.puzzle_grid.does_mate(locations[i]):
+                        loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
                         # weight_destination = self.puzzle_grid.get_neighbor(locations[i])
                         # weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
                         # weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
-                        class call_me():
-                            def __init__(self, *args, **kwargs):
-                                self.args = args
-                                self.kwargs = kwargs
-                            def __call__(self):
-                                controller.move_piece(*self.args, **self.kwargs)
                         # self.action_queue.append(call_me(controller.move_weight(weight_destination)))
                         self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=True))
+                        self.puzzle_grid.occupied[tuple(locations[i])] = 1
+                        done = False
+            print(self.puzzle_grid.occupied)
+            self.action_queue.append(self.tasks.pop)
 
             # target_piece = self.reference_pieces[self.pieces_solved]
             # for piece in self.piece_list:

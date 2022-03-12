@@ -1,6 +1,26 @@
 import cv2
 import numpy as np
 
+def calc_rotation(biggest_contour, step = 2, n_thetas = 90):
+    derivatives = np.zeros_like(biggest_contour, dtype = np.float32)
+    
+    for i in range(len(biggest_contour)):
+        prev_point = biggest_contour[(i - step) % len(biggest_contour)]
+        next_point = biggest_contour[(i + step) % len(biggest_contour) ]
+        v = next_point - prev_point
+        derivatives[i] = (-v[1], v[0])
+        derivatives[i] = derivatives[i] / (0.00001 + np.linalg.norm(derivatives[i]))
+
+    thetas = np.linspace(0, np.pi/4, n_thetas)
+    theta_sums = []
+    for theta in thetas:
+        rotation_vectors = np.array([[np.sin(theta), np.cos(theta)], 
+                                     [np.cos(theta), -np.sin(theta)]])
+        min_vec = 2*(np.min(np.square((derivatives @ rotation_vectors)), axis = 1))
+        theta_sums.append(np.sum(min_vec))
+    
+    return thetas[np.argmin(theta_sums)]
+
 def get_piece_mask(img):
     # Filter out background
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -93,7 +113,7 @@ class ThomasPuzzlePiece:
         
         return self.box_raw
 
-    def get_bounding_box_contour(self, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2):
+    def get_largest_contour(self, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2) :
         # Compute a contour and then use the largest countour to build a bounding box
         filtered = self.img
         for i in range(filter_iters):
@@ -103,12 +123,17 @@ class ThomasPuzzlePiece:
         # Old contour based box:
         contours, hierarchy = cv2.findContours(filtered, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         biggest_contour = max(contours, key = cv2.contourArea)
+        return biggest_contour
+
+    def get_bounding_box_contour(self, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2):
+        # Compute a contour and then use the largest countour to build a bounding box
+        biggest_contour = self.get_largest_contour(threshold = 100, erosion = 5, dilation = 3, filter_iters = 2)
         rect = cv2.minAreaRect(biggest_contour)
         self.box_raw = cv2.boxPoints(rect)
         
         return self.box_raw
     
-    def get_rotation_to_align(self, compute_bounding_box = False, box_raw = None, maxWidth = 100, maxHeight = 100):
+    def get_rotation_to_align_old(self, compute_bounding_box = False, box_raw = None, maxWidth = 100, maxHeight = 100):
         # Use the vector of the top of the bounding box to orient the piece. 
         if compute_bounding_box:
             corner_box = self.get_bounding_box()
@@ -132,6 +157,10 @@ class ThomasPuzzlePiece:
         top_line_vector = box_raw[1] - box_raw[0]
         top_line_vector = top_line_vector / np.linalg.norm(top_line_vector)
         return np.arccos(top_line_vector.dot(np.array([1, 0])))
+
+    def get_rotation_to_align(self, erosion = 5, dilation = 3, filter_iters = 2, **kwargs):
+        biggest_contour = self.get_largest_contour(threshold = 100, erosion = 5, dilation = 3, filter_iters = 2)
+        return calc_rotation(biggest_contour)
     
     def get_warped(self, maxWidth = 300, maxHeight = 300):
         box = self.get_bounding_box()

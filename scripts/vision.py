@@ -1,6 +1,6 @@
 from glob import glob
 import numpy as np 
-
+import rospy
 import cv2
 
 import torch
@@ -195,7 +195,8 @@ rotation_coefs = np.array([-4.43217370e-01, -3.54750184e-01,  4.32681003e-01,
         -7.96723010e-02, -4.05499318e-01, -7.79287105e-02,
          7.44906414e-01, -1.72817504e-01, -4.28755157e-01,
          1.20154032e-01,  2.22723217e-01,  4.66253408e+00])
-
+rotation_coefs[-1] *= 2
+# rotation_coefs[np.abs(rotation_coefs) < 0.01] = 0
 rotation_intercept = -0.08146978
 
 def norm(x):
@@ -209,9 +210,17 @@ def run_rotation_model(base_img, rotation_image, k_init = 0):
     base_img = np.rot90(base_img, k = k_init)
     probs = []
     for k in range(4):
-        rot_img = np.rot90(rotation_image, k = k)
+        rot_img = np.rot90(rotation_image, k = k + k_init)
         x = np.array(list(np.abs(run_model_masked(base_img)[0] - run_model_masked(rot_img)[0])) + [calc_iou(base_img, rot_img)])
         probs.append(sigmoid(np.dot(x, rotation_coefs) + rotation_intercept ))
+    return probs
+
+def run_rotation_model_big(base_img, rotation_image):
+    probs = np.zeros(4)
+    for i in range(4):
+        probs += np.array(run_rotation_model(base_img, rotation_image, i)) / 4
+    
+    print("[VISION] : ", probs, np.argmax(probs))
     return probs
 
 def run_model(img, image_size = 124):
@@ -311,8 +320,9 @@ class VisionMatcher():
         # sim_base = self.inferences[xy_min[0]][xy_min[1]]
         # sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(img).T) - self.rotation_pca.transform(sim_base.reshape(1, -1))) ** 2).sum(axis=1)
         # argmin_pca = np.array(sims_rot)
-
-        return xy_min, np.argmin(run_rotation_model(base, img) ) #np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca))
+        rot_probs = run_rotation_model_big(base, img)
+        rospy.loginfo("[VISION] CALCULATING XY-ROT : ", xy_min, np.argmax(rot_probs), rot_probs)
+        return xy_min, np.argmax(rot_probs) #np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca))
     
     def calculate_rotation_difference_vectors(self, img, ref):
         sims = np.zeros((MODEL_OUT_DIM, 4))
@@ -384,14 +394,17 @@ class VisionMatcher():
             rots = np.zeros((len(pieces)))
             for i in range(len(pieces)):
                 base = self.piece_grid[locations[i, 0]][locations[i, 1]].natural_img
+                img = pieces[i].natural_img
                 ious = [calc_iou(np.rot90(pieces[i].natural_img, k = k), base) for k in range(4)]
                 argmin_basic = np.array(scores_all[i, locations[i, 0], locations[i, 1], :4])
                 argmin_iou = 1-np.array(ious)
                 sim_base = self.inferences[locations[i, 0]][locations[i, 1]]
                 sims_rot = ((self.rotation_pca.transform(self.calculate_rotation_vectors(pieces[i].natural_img).T) - self.rotation_pca.transform(sim_base.reshape(1, -1))) ** 2).sum(axis=1)
                 argmin_pca = np.array(sims_rot)
+                probs = run_rotation_model_big(base, img)
 
-                rots[i] = np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca))
+                print( "[NORMS] : ", norm(argmin_basic), norm(argmin_iou), norm(argmin_pca), norm(probs))
+                rots[i] = np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca) - 4 * norm(probs))
             return locations, rots, match_scores  # locations[i] gives grid location of piece i
         else:
             raise Exception("Not Implemented")

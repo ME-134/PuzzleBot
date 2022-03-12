@@ -158,6 +158,7 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/6, np.pi/4, 0, 0]).reshape((5, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
 
+            
         # Create the splines.
         self.segments = []
 
@@ -169,11 +170,10 @@ class Controller:
         # Subscriber which listens to the motors' positions and velocities
         # Used for touch detection and gravity compensation
         self.state_sub = rospy.Subscriber('/hebi/joint_states', JointState, self.state_update_callback)
-        self.state_sub = rospy.Subscriber('/current_draw', Float32, self.current_callback)
+        self.curr_sub = rospy.Subscriber('/current_draw', Float32, self.current_callback)
         self.current = 0.0
 
         self.detector = Detector()
-        self.detector.init_aruco()
         self.solver = Solver(self.detector)
 
         self.last_t = None
@@ -324,6 +324,8 @@ class Controller:
     def current_callback(self, msg):
         # Storing current the pump is drawing
         self.current = msg.data
+        if (self.current > 100 and not self.pump_value) or (self.current < 100 and self.pump_value):
+            self.set_pump(self.pump_value)
 
     def set_pump(self, value):
         # Turns on/off pump
@@ -470,14 +472,17 @@ class Controller:
             return
 
         # If the current segment is done, replace the segment with a new one
-        dur = self.segments[self.index].duration()
+        if self.segments:
+            dur = self.segments[self.index].duration()
+        else:
+            dur = 0.0
         if (t - self.t0 >= dur):
             self.index = (self.index + 1)
             self.t0 = t
 
             if self.index >= len(self.segments):
                 self.state = State.idle
-                self.segments = None
+                self.segments = []
 
                 status = Status.Ok
                 self.solver.notify_action_completed(status)

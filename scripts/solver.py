@@ -17,10 +17,13 @@ from puzzle_grid import PuzzleGrid
 import vision
 
 class SolverTask(enum.Enum):
+    InitAruco = 0
     GetView = 1
     SeparatePieces = 2
     PutPiecesTogether = 3
     SeparateOverlappingPieces = 4
+    GetViewCleared = 5
+    GetViewPuzzle = 6
 
 class Status(enum.Enum):
     Ok = 0
@@ -33,11 +36,12 @@ class Solver:
     def __init__(self, detector):
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
-        self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored2.jpg')
+        self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored4.jpg')
         # Stack
         self.tasks = []
         self.tasks.append(SolverTask.PutPiecesTogether)
         self.tasks.append(SolverTask.SeparatePieces)
+        self.tasks.append(SolverTask.InitAruco)
         self.tasks.append(SolverTask.GetView)
 
         # Series of actions to perform
@@ -69,6 +73,14 @@ class Solver:
             if status.ok():
                 self.detector.snap()
                 self.piece_list = self.detector.pieces.copy()
+                self.tasks.pop()
+            else:
+                errmsg = f"[Solver] Unknown error: {status}"
+                rospy.logerror(errmsg)
+                raise RuntimeError(errmsg)
+
+        elif curr_task == SolverTask.InitAruco:
+            if status.ok():
                 self.tasks.pop()
             else:
                 errmsg = f"[Solver] Unknown error: {status}"
@@ -116,6 +128,25 @@ class Solver:
             # the robot arm is not in the camera frame.
             rospy.loginfo("[Solver] Current task is GetView, sending Reset command.")
             controller.reset()
+            return
+        elif curr_task == SolverTask.GetViewCleared:
+            # If we want to get the view, simply go to the reset position, where
+            # the robot arm is not in the camera frame.
+            rospy.loginfo("[Solver] Current task is GetViewCleared, sending Reset command.")
+            controller.reset()
+            return
+        elif curr_task == SolverTask.GetViewPuzzle:
+            # If we want to get the view, simply go to the reset position, where
+            # the robot arm is not in the camera frame.
+            rospy.loginfo("[Solver] Current task is GetViewPuzzle, sending Reset command.")
+            controller.reset()
+            return
+
+        elif curr_task == SolverTask.InitAruco:
+            # If we want to get the view, simply go to the reset position, where
+            # the robot arm is not in the camera frame.
+            rospy.loginfo("[Solver] Current task is InitAruco, sending Reset command.")
+            self.detector.init_aruco()
             return
 
         elif curr_task == SolverTask.SeparatePieces:
@@ -190,7 +221,7 @@ class Solver:
                         self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=True))
                         self.puzzle_grid.occupied[tuple(locations[i])] = 1
                         done = False
-            print(self.puzzle_grid.occupied)
+            print(self.puzzle_grid.occupied.transpose())
             self.action_queue.append(self.tasks.pop)
 
             # target_piece = self.reference_pieces[self.pieces_solved]

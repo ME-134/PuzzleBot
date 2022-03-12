@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 
 def calc_rotation(biggest_contour, step = 2, n_thetas = 90):
+    biggest_contour = biggest_contour.reshape(-1, 2)
     derivatives = np.zeros_like(biggest_contour, dtype = np.float32)
     
     for i in range(len(biggest_contour)):

@@ -35,13 +35,13 @@ class SafeCubicSpline(CubicSpline):
 
 class GotoSpline(SafeCubicSpline):
     # Use zero initial/final velocities (of same size as positions).
-    def __init__(self, p0, pf, **kwargs):
+    def __init__(self, p0, pf, v0=0, vf=0, **kwargs):
         min_time = 1
         speed = 1 # rad per sec
         max_diff = np.max(np.abs(p0 - pf))
         time = max_diff / speed + min_time
         assert time >= min_time
-        SafeCubicSpline.__init__(self, p0, 0*p0, pf, 0*pf, time, **kwargs)
+        SafeCubicSpline.__init__(self, p0, v0, pf, vf, time, **kwargs)
 
 
 class State(enum.Enum):
@@ -252,29 +252,32 @@ class Controller:
             hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
 
             if space == 'Joint':
-                hover_theta = self.ikin(hover, self.mean_theta)
+                hover_theta, J = self.ikin(hover, self.mean_theta, return_J = True)
                 rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
-                goal_theta = self.ikin(pgoal, hover_theta, step_size=.3)
+                goal_theta, J = self.ikin(pgoal, hover_theta, return_J = True, step_size=.3)
                 rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
-                return goal_theta, hover_theta
+                return goal_theta, hover_theta, J
             elif space == 'Task':
                 rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}")
                 rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}")
-                return pgoal, hover
+                return pgoal, hover, _
             else:
                 errmsg = f"Space \"{space}\" is invalid"
                 rospy.signal_shutdown(errmsg)
                 raise InvalidSpaceException(errmsg)
 
         splines = list()
-        origin_goal, origin_hover = get_piece_and_hover_thetas(piece_origin)
-        dest_goal,   dest_hover   = get_piece_and_hover_thetas(piece_destination, turn=turn)
-        splines.append(SafeCubicSpline(self.lasttheta, self.lastthetadot, origin_hover, 0, 3, space=space))
-        splines.append(GotoSpline(origin_hover, origin_goal, space=space))
+        origin_goal, origin_hover, J_origin = get_piece_and_hover_thetas(piece_origin)
+        dest_goal,   dest_hover,   J_dest   = get_piece_and_hover_thetas(piece_destination, turn=turn)
+        down_vel = np.array([0, 0, -.1, 0, 0]).reshape((5,1))
+        origin_vel = np.linalg.pinv(J_origin)@down_vel
+        dest_vel = np.linalg.pinv(J_dest)@down_vel
+        splines.append(SafeCubicSpline(self.lasttheta, self.lastthetadot, origin_hover, origin_vel, 3, space=space))
+        splines.append(SafeCubicSpline(origin_hover, origin_vel, origin_goal, 0, 1, space=space))
         splines.append(FuncSegment(lambda: self.set_pump(True)))
         splines.append(GotoSpline(origin_goal, origin_goal, space=space))
         splines.append(GotoSpline(origin_goal, origin_hover, space=space))
-        splines.append(GotoSpline(origin_hover, dest_hover, space=space))
+        splines.append(GotoSpline(origin_hover, dest_hover, vf=dest_vel, space=space))
         if jiggle:
             pos_offset = .004
             rot_offset = .1
@@ -290,7 +293,7 @@ class Controller:
 
             hover = np.array([x, y, pickup_height + hover_amount, turn, 0]).reshape((5, 1))
             pgoal, _ = jiggle_movement.evaluate(0)
-            splines.append(GotoSpline(hover, pgoal, space='Task'))
+            splines.append(SafeCubicSpline(hover, down_vel, pgoal, 0, space='Task'))
             splines.append(FuncSegment(lambda: self.set_pump(False)))
             # splines.append(GotoSpline(pgoal, pgoal, space='Task'))
 
@@ -303,7 +306,7 @@ class Controller:
             splines.append(SafeCubicSpline(jiggle_theta, 0, dest_goal, 0, 1, space=space))
             splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))
         else:
-            splines.append(GotoSpline(dest_hover, dest_goal, space=space))
+            splines.append(SafeCubicSpline(dest_hover, dest_vel, dest_goal, 0, 1, space=space))
             splines.append(FuncSegment(lambda: self.set_pump(False)))
             splines.append(GotoSpline(dest_goal, dest_goal, space=space))
             splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))

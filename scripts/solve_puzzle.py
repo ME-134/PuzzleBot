@@ -196,8 +196,6 @@ class Controller:
 
         guess = np.array([-1.48, 1.83, 1.857, -0.07, 0]).reshape((5,1))
         goal_theta = self.ikin(self.reset_pos, guess)
-        print('\n\n\n')
-        print(goal_theta)
 
         Bounds.assert_theta_valid(goal_theta)
         Bounds.assert_theta_valid(self.lasttheta)
@@ -239,7 +237,7 @@ class Controller:
         weight_origin = self.detector.find_aruco(4)
         self.move_piece(weight_origin, weight_destination, pickup_height=pickup_height, hover_amount=.06, place_height=.012)
 
-    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.008):
+    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.014):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         if place_height is None:
@@ -278,8 +276,8 @@ class Controller:
         splines.append(GotoSpline(origin_goal, origin_hover, space=space))
         splines.append(GotoSpline(origin_hover, dest_hover, space=space))
         if jiggle:
-            pos_offset = .0065
-            rot_offset = .13
+            pos_offset = .004
+            rot_offset = .1
             duration = 5
             jiggle_height = 0.0
             x, y = piece_destination
@@ -287,7 +285,7 @@ class Controller:
             pgoal1 = np.array([x - pos_offset, y - pos_offset, jiggle_height, turn - rot_offset, 0]).reshape((5, 1))
             pgoal2 = np.array([x + pos_offset, y + pos_offset, jiggle_height, turn + rot_offset, 0]).reshape((5, 1))
             phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
-            freq = np.array([1, 1, .5, 1.4, .5]).reshape((5, 1))
+            freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
             jiggle_movement = SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
             hover = np.array([x, y, pickup_height + hover_amount, turn, 0]).reshape((5, 1))
@@ -396,6 +394,10 @@ class Controller:
         Bounds.assert_theta_valid(goal_theta)
 
         return goal_theta
+
+    def get_current_position(self):
+        T, _ = self.kin.fkin(self.lasttheta)
+        return p_from_T(T)
 
     def ikin(self, xgoal, theta_initialguess, return_J=False, max_iter=50, step_size=1, warning=True, fix=True):
         # Start iterating from the initial guess

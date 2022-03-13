@@ -12,13 +12,16 @@ def calc_rotation(biggest_contour, step = 2, n_thetas = 90):
         derivatives[i] = (-v[1], v[0])
         derivatives[i] = derivatives[i] / (0.00001 + np.linalg.norm(derivatives[i]))
 
-    thetas = np.linspace(0, np.pi/4, n_thetas)
+    thetas = np.linspace(0, np.pi, n_thetas)
     theta_sums = []
     for theta in thetas:
         rotation_vectors = np.array([[np.sin(theta), np.cos(theta)], 
                                      [np.cos(theta), -np.sin(theta)]])
-        min_vec = 2*(np.min(np.square((derivatives @ rotation_vectors)), axis = 1))
-        theta_sums.append(np.sum(min_vec))
+        errors = np.square((derivatives @ rotation_vectors))
+        
+        min_vec = (np.min(errors, axis = 1))
+        # min_vec = np.clip(min_vec, np.quantile(min_vec, 0.01), np.quantile(min_vec, 0.99))
+        theta_sums.append(np.mean(min_vec))
     
     return thetas[np.argmin(theta_sums)]
 

@@ -111,9 +111,9 @@ class PuzzlePiece:
     def is_valid(self):
         if not (2000 < self.area):
             return False
-        if not (50 < self.width):
+        if not (70 < self.width):
             return False
-        if not (50 < self.height):
+        if not (70 < self.height):
             return False
         return True
 
@@ -186,6 +186,7 @@ class Detector:
         
         # TODO: Lock?
         self.latestImage = None
+        self.last_processed_img = None
         
         # List of puzzle piece objects
         # TODO: Lock?
@@ -206,13 +207,28 @@ class Detector:
         self.latestImage = self.crop_raw(self.bridge.imgmsg_to_cv2(msg, "bgr8"))
 
 
-    def snap(self):
+    def snap(self, white_list=None, black_list=None):
         if self.latestImage is None:
             rospy.logwarn("[Detector] Waiting for image from camera...")
             while self.latestImage is None:
                 pass
             rospy.loginfo("[Detector] Recieved image from camera")
-        bluedots_img, binary_img, free_space_img = self.process(self.latestImage)
+        if white_list:
+            if black_list:
+                rospy.logwarn("[Detector] Received both white list and black list, using only white list")
+            img = self.last_processed_img
+            for shape in white_list:
+                # Assume rectangle for now
+                img[shape[0]:shape[2], shape[1]:shape[3]] = self.latestImage[shape[0]:shape[2], shape[1]:shape[3]]
+        elif black_list:
+            img = self.latestImage
+            for shape in black_list:
+                # Assume rectangle for now
+                img[shape[0]:shape[2], shape[1]:shape[3]] = self.last_processed_img[shape[0]:shape[2], shape[1]:shape[3]]
+        else:
+            img = self.latestImage
+
+        bluedots_img, binary_img, free_space_img = self.process(img)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
         self.free_space_img = free_space_img
@@ -278,7 +294,10 @@ class Detector:
         self.transform = cv2.getPerspectiveTransform(screens, worlds)
 
     def world_to_screen(self, x, y):
-        raise NotImplementedError()
+        coords = np.float32([[[x, y]]])
+        print(coords)
+        x, y = cv2.perspectiveTransform(coords, np.linalg.pinv(self.transform))[0, 0]
+        return (x, y)
 
     def screen_to_world(self, x, y):
         #coords = cv2.undistortPoints(np.float32([[[x, y]]]), self.camK, self.camD)
@@ -322,6 +341,7 @@ class Detector:
         self.map_pub.publish(grid_msg)
 
     def process(self, img):
+        self.last_processed_img = img.copy()
         img_orig = img.copy()
         # Filter out background
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -394,8 +414,7 @@ class Detector:
 
             piece_mask = (markers == i+1)
             piece = PuzzlePiece(piece_mask)
-            #if piece.is_valid():
-            if True:
+            if piece.is_valid():
                 # First try to match the piece
                 for existing_piece in self.pieces:
                     if not existing_piece.matched:

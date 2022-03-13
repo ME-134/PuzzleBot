@@ -78,6 +78,26 @@ class Solver:
                 errmsg = f"[Solver] Unknown error: {status}"
                 rospy.logerror(errmsg)
                 raise RuntimeError(errmsg)
+        elif curr_task == SolverTask.GetViewCleared:
+            # The camera should have a clear view of the pieces now.
+            if status.ok():
+                self.detector.snap(black_list = [self.get_puzzle_region()])
+                self.piece_list = self.detector.pieces.copy()
+                self.tasks.pop()
+            else:
+                errmsg = f"[Solver] Unknown error: {status}"
+                rospy.logerror(errmsg)
+                raise RuntimeError(errmsg)
+        elif curr_task == SolverTask.GetViewPuzzle:
+            # The camera should have a clear view of the pieces now.
+            if status.ok():
+                self.detector.snap(white_list = [self.get_puzzle_region()])
+                self.piece_list = self.detector.pieces.copy()
+                self.tasks.pop()
+            else:
+                errmsg = f"[Solver] Unknown error: {status}"
+                rospy.logerror(errmsg)
+                raise RuntimeError(errmsg)
 
         elif curr_task == SolverTask.InitAruco:
             if status.ok():
@@ -105,7 +125,7 @@ class Solver:
                 if self.pieces_solved == self.num_pieces:
                     rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
                     self.tasks.pop()
-                # self.tasks.append(SolverTask.GetView)
+                self.tasks.append(SolverTask.GetViewCleared)
             else:
                 raise NotImplementedError()
 
@@ -130,15 +150,29 @@ class Solver:
             controller.reset()
             return
         elif curr_task == SolverTask.GetViewCleared:
-            # If we want to get the view, simply go to the reset position, where
-            # the robot arm is not in the camera frame.
-            rospy.loginfo("[Solver] Current task is GetViewCleared, sending Reset command.")
+            # Get a clear view of all the cleared puzzle pieces
+            x, y = self.get_arm_location(controller)
+
+            # If the arm is in the puzzle region, we already have a view of the cleared pieces
+            if self.point_in_puzzle_region(self, x, y, buffer=-20):
+                rospy.loginfo("[Solver] Current task is GetViewCleared, but arm is in the puzzle region, moving on to the next task.")
+                self.tasks.pop()
+                return self.apply_next_action(controller)
+            
+            rospy.loginfo("[Solver] Current task is GetViewCleared, and arm is not in the puzzle region, resetting robot.")
             controller.reset()
             return
         elif curr_task == SolverTask.GetViewPuzzle:
-            # If we want to get the view, simply go to the reset position, where
-            # the robot arm is not in the camera frame.
-            rospy.loginfo("[Solver] Current task is GetViewPuzzle, sending Reset command.")
+            # Get a clear view of the puzzle region
+            x, y = self.get_arm_location(controller)
+
+            # If the arm is not in the puzzle region, we already have a view of the puzzle region
+            if not self.point_in_puzzle_region(self, x, y, buffer=20):
+                rospy.loginfo("[Solver] Current task is GetViewPuzzle, and arm is not in the puzzle region, moving on to the next task.")
+                self.tasks.pop()
+                return self.apply_next_action(controller)
+            
+            rospy.loginfo("[Solver] Current task is GetViewPuzzle, and arm is in the puzzle region, resetting robot.")
             controller.reset()
             return
 
@@ -171,7 +205,7 @@ class Solver:
 
                 print("rotation offset: ", rotation_offset)
                 ### END TEMP
-                threshold_rotation_error = 0.175
+                threshold_rotation_error = 0.18
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
                 if piece.overlaps_with_region(self.get_puzzle_region()):
@@ -218,7 +252,7 @@ class Solver:
                         # weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
                         # weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
                         # self.action_queue.append(call_me(controller.move_weight(weight_destination)))
-                        self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=True))
+                        self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                         self.puzzle_grid.occupied[tuple(locations[i])] = 1
                         done = False
             print(self.puzzle_grid.occupied.transpose())
@@ -263,6 +297,18 @@ class Solver:
 
 
     # Private methods
+    def get_arm_location(self, controller):
+        # Returns arm location in pixel space
+        pos = controller.get_current_position().flatten()
+        x, y = pos[0], pos[1]
+        return self.detector.world_to_screen(x, y)
+
+    def point_in_puzzle_region(self, x, y, buffer=0):
+        # Returns whether the screen x,y is withing the puzzle region
+        xmin, ymin, xmax, ymax = self.get_puzzle_region()
+        return  (xmin - buffer <= x <= xmax + buffer) \
+            and (ymin - buffer <= y <= ymax + buffer)
+
     def get_rotation_offset(self, piece_img):
         '''
         Given an image of a piece, return how many radians clockwise it should be

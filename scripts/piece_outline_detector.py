@@ -145,6 +145,81 @@ class PuzzlePiece:
             if (xmin < x < xmax) and (ymin < y < ymax):
                 return True
         return False
+
+    def find_corners(self):
+        mask = self.mask.copy()
+        mask = cv2.dilate(mask, None, iterations=2)
+        mask = cv2.erode(mask, None, iterations=2)
+        mask[mask == 1] = 255
+        mask = mask.astype(np.uint8)
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours[0]
+        contours = contours[:, 0, :]
+        
+        hull = cv2.convexHull(contours.astype(np.float32))[:, 0, :]
+        
+        def dist(a, b):
+            return np.linalg.norm(a-b)
+            
+        def angle(a, b, c):
+            v1 = a - b
+            v2 = c - b
+            return np.arccos(np.sum(v1*v2)/(np.linalg.norm(v1)*np.linalg.norm(v2)))
+        
+        # filter out small angles
+        candidates = list(np.int0(hull))
+        done = False
+        while not done:
+            done = True
+            to_remove = list()
+            for i in range(len(candidates)):
+                a = candidates[(i - 1 + len(candidates)) % len(candidates)]
+                b = candidates[i]
+                c = candidates[(i + 1 + len(candidates)) % len(candidates)]
+                if abs(angle(a, b, c) - np.pi) < 0.2:
+                    to_remove.append(i)
+            for i in to_remove[::-1]:
+                candidates.pop(i)
+                done = False
+                
+        centroids = np.array(candidates)
+        
+        # Find 4 best candidates
+        best_score = np.inf
+        best_four = None
+        for four in combinations(candidates, 4):
+            p1, p2, p3, p4 = four
+            
+            ideal_height = 120
+            ideal_width = 180
+            ideal_angle = np.pi/2
+                        
+            score1 = abs(dist(p1,p2)+dist(p3,p4)-2*ideal_width) / 100
+            score1 += abs(dist(p2,p3)+dist(p1,p4)-2*ideal_height) / 100
+            
+            score2 = abs(dist(p1,p2)+dist(p3,p4)-2*ideal_height) / 100
+            score2 += abs(dist(p2,p3)+dist(p1,p4)-2*ideal_width) / 100
+
+            score = min(score1, score2)
+            
+            score += abs(angle(p1, p2, p3) - ideal_angle)
+            score += abs(angle(p2, p3, p4) - ideal_angle)
+            score += abs(angle(p3, p4, p1) - ideal_angle)
+            score += abs(angle(p4, p1, p2) - ideal_angle)
+            
+            if score < best_score:
+                best_score = score
+                print("new best score", best_score)
+                best_four = four
+        return best_four
+
+    def get_aligning_rotation(self):
+        p1, p2, p3, p4 = self.find_corners()
+        angle1 = angle(p2, p1, p1 + np.array([1, 0]))
+        angle2 = angle(p3, p4, p4 + np.array([1, 0]))
+        rot = np.mean([angle1, angle2])
+        return rot
+
 #
 #  Detector Node Class
 #

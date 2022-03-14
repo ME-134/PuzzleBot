@@ -3,8 +3,6 @@ from matplotlib.pyplot import pie
 import numpy as np
 from itertools import combinations
 
-from piece_outline_detector import PuzzlePiece
-
 # Set the approximate piece side length (in pixels).  This is used to
 # sub-divide the long side of connected pieces.
 SIDELEN = 125
@@ -52,7 +50,7 @@ def get_piece_mask(img):
 
     return blocks
 
-def ToThomasPuzzlePiece(piece: PuzzlePiece):
+def ToThomasPuzzlePiece(piece):
     tp = ThomasPuzzlePiece(0, 0, 0, 0, 0)
     tp.img = get_piece_mask(piece.natural_img)
     tp.natural_img = piece.natural_img

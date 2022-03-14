@@ -43,7 +43,10 @@ class GotoSpline(SafeCubicSpline):
         if 'vf' in kwargs:
             vf = kwargs['vf']
             del kwargs['vf']
-        min_time = 0.25
+        min_time = 0.5
+        if 'minduration' in kwargs:
+            min_time = max(min_time, kwargs['minduration'])
+            del kwargs['minduration']
         speed = 0.75 # rad per sec
         max_diff = np.max(np.abs(p0 - pf))
         time = max_diff / speed + min_time
@@ -67,13 +70,14 @@ class InvalidSpaceException(Exception):
 class FuncSegment:
     # Calls function with no arguments
     # Can be added to segments list
-    def __init__(self, func):
+    def __init__(self, func, minduration=0):
         self.func = func
         self.called = False
+        self.minduration = minduration
 
     def duration(self):
         if self.called:
-            return 0
+            return self.minduration
         else:
             return np.inf
 
@@ -91,7 +95,7 @@ class SplineSequence:
         self.splines = list()
         self.space = space
         self.latest_place = origin
-    def change_space(new_origin, new_space):
+    def change_space(self, new_origin, new_space):
         self.latest_place = new_origin
         self.space = new_space
     def append(self, spline):
@@ -100,9 +104,9 @@ class SplineSequence:
             return
         assert self.space == spline.space()
         self.splines.append(spline)
-        self.latest_place, _ = spline.evalutate(spline.duration())
-    def append_goto(self, loc):
-        goto = GotoSpline(self.latest_place, loc, space=self.space)
+        self.latest_place, _ = spline.evaluate(spline.duration())
+    def append_goto(self, loc, minduration=0):
+        goto = GotoSpline(self.latest_place, loc, space=self.space, minduration=minduration)
         self.splines.append(goto)
         self.latest_place = loc
     def append_gotos(self, locs):
@@ -280,12 +284,12 @@ class Controller:
         splines.append(GotoSpline(self.lasttheta, goal_theta, v0=self.lastthetadot))
         self.change_segments(splines)
 
-    def _create_jiggle_spline(center):
+    def _create_jiggle_spline(self, center):
         # only works in task space
         pos_offset = .004
         rot_offset = .1
         duration = 5
-        jiggle_height = 0.014
+        jiggle_height = 0.01
         pgoal1 = center + np.array([-pos_offset, -pos_offset, jiggle_height, -rot_offset, 0]).reshape((5, 1))
         pgoal2 = center + np.array([pos_offset, pos_offset, jiggle_height, rot_offset, 0]).reshape((5, 1))
         phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
@@ -293,11 +297,10 @@ class Controller:
         return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
     def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint'):
-        curr_pos = np.float32([0, 0, 0, self.lasttheta[3], 0]).reshape((5, 1))
+        curr_pos = np.float32([0, 0, 0, -self.lasttheta[4, 0]+self.lasttheta[0,0], 0]).reshape((5, 1))
         curr_pos[:3] = self.get_current_position()
         pickup_pos = curr_pos.copy()
-        pickup_pos[2, 0] = -0.014
-        print(pickup_pos)
+        pickup_pos[2, 0] = -0.005
         if space == 'Joint':
             up = self.lasttheta
             down = self.ikin(pickup_pos, self.lasttheta, step_size=.3)
@@ -307,7 +310,7 @@ class Controller:
         seq = SplineSequence(up, space=space)
         if jiggle:
             seq.append_goto(down)
-            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value)))
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=1))
 
             # Jiggle needs to be done in 'Task' space
             seq.change_space(pickup_pos, 'Task')
@@ -317,11 +320,11 @@ class Controller:
             seq.append_goto(pickup_pos)
             seq.change_space(down, space)
 
-            seq.append_goto(up)
+            seq.append_goto(up, minduration=1)
         else:
             seq.append_goto(down)
-            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value)))
-            seq.append_gotos([down, up])
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=1))
+            seq.append_goto(up, minduration=1)
 
         self.change_segments(seq.as_list())
 
@@ -419,7 +422,8 @@ class Controller:
     def current_callback(self, msg):
         # Storing current the pump is drawing
         self.current = msg.data
-        if (self.current > 100 and not self.pump_value) or (self.current < 100 and self.pump_value):
+        if (self.current > 100 and self.pump_value == 0) or (self.current < 100 and self.pump_value == 1):
+            rospy.logwarn("[Controller] Pump is incorrect value - correcting...")
             self.set_pump(self.pump_value)
 
     def set_pump(self, value):

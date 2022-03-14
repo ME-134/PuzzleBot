@@ -193,6 +193,10 @@ class Solver:
             raise RuntimeError(f"Unknown task: {curr_task}")
 
     def apply_next_action(self, controller):
+        '''
+        This function will continuously apply the action at the top of the stack.
+        To break out of the recursive loop, simply "return".
+        '''
         print("apply next action: ", self.tasks)
 
         if not self.tasks:
@@ -220,11 +224,11 @@ class Solver:
 
                 # End this task and attempt to do the next one.
                 self.tasks.pop()
-                return self.apply_next_action(controller)
-
-            rospy.loginfo("[Solver] Arm is not in the puzzle region, resetting robot.")
-            controller.reset()
-            return
+            
+            else:
+                rospy.loginfo("[Solver] Arm is not in the puzzle region, resetting robot.")
+                controller.reset()
+                return
 
         elif curr_task == SolverTask.GetViewPuzzle:
             # Get a clear view of the puzzle region
@@ -236,15 +240,15 @@ class Solver:
 
                 # End this task and attempt to do the next one.
                 self.tasks.pop()
-                return self.apply_next_action(controller)
 
-            rospy.loginfo("[Solver] Arm is in the puzzle region, resetting robot.")
-            controller.reset()
-            return
+            else:
+                rospy.loginfo("[Solver] Arm is in the puzzle region, resetting robot.")
+                controller.reset()
+                return
 
         elif curr_task == SolverTask.InitAruco:
             self.detector.init_aruco()
-            return
+            self.tasks.pop()
 
         elif curr_task == SolverTask.MoveArm:
             controller.move_to_pixelcoords(task_data['dest'], task_data.get('turn', 0))
@@ -285,7 +289,10 @@ class Solver:
                     break
             else:
                 # All pieces have been cleared from the puzzle region
-                rospy.logwarn("[Solver] No pieces left to separate, continuing to next solver task.")
+                rospy.loginfo("[Solver] No pieces left to separate, continuing to next solver task.")
+                
+                # TODO: in the future, we might want to not pop, so that
+                # we can recover from errors. 
                 self.tasks.pop()
                 return self.apply_next_action(controller)
 
@@ -293,15 +300,14 @@ class Solver:
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
 
             # Add in reverse
+            self.tasks.push(SolverTask.GetView)
             self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
-            self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': rotation_offset})
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_origin})
 
             # Continue onto the next action
             return self.apply_next_action(controller)
-
-            # controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
 
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.
@@ -311,27 +317,33 @@ class Solver:
             locations, rots, scores = self.vision.match_all(self.piece_list)
             done = False
             hackystack = TaskStack() # temporary hacky solution
+            
+            def processpiece(i):
+                loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
+
+                # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
+                hackystack.push(SolverTask.LiftPiece)
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
+                self.puzzle_grid.occupied[tuple(locations[i])] = 1
+            processpiece(0)
+
             while not done:
                 done = True
-                for i in range(len(self.piece_list)):
+                for i in range(1, len(self.piece_list)):
                     # Puts pieces in an order where they mate
-                    if (i == 0) or (scores[i] < 99999 and \
-                                    self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
-                                    self.puzzle_grid.does_mate(locations[i])):
-                        loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
-
-                        # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
-                        hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
-                        hackystack.push(SolverTask.LiftPiece)
-                        hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
-                        hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
-                        # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
-                        self.puzzle_grid.occupied[tuple(locations[i])] = 1
+                    if (scores[i] < 99999 and \
+                        self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
+                        self.puzzle_grid.does_mate(locations[i])):
+                        processpiece(i)
                         done = False
             while len(hackystack) > 0:
-                task, taskdata = hackystack.pop()
-                self.tasks.push(task, taskdata=taskdata)
-
+                print(len(hackystack))
+                task, task_data = hackystack.pop()
+                self.tasks.push(task, task_data=task_data)
+            
             # target_piece = self.reference_pieces[self.pieces_solved]
             # for piece in self.piece_list:
             #     if piece.fully_contained_in_region(self.get_puzzle_region()):
@@ -370,6 +382,8 @@ class Solver:
         else:
             raise RuntimeError(f"Unknown task: {curr_task}")
 
+        # Recursive step important for correct control flow.
+        self.apply_next_action(controller)
 
     # Private methods
     def get_arm_location(self, controller):
@@ -465,7 +479,7 @@ class Solver:
                     break # assume puzzle region is in the bottom-right
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice(padding=20)]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=15)]):
                     dummy_piece = dummy_piece_copy.copy()
                     dummy_piece.move_to(x, y)
 

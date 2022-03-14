@@ -74,7 +74,9 @@ class ThomasPuzzlePiece:
         self.y = y
 
     def set_img(self, img):
-        self.img = img
+        cutout_img = np.zeros_like(img)
+        cv2.drawContours(cutout_img, [self.get_largest_contour(image=img, erosion=0, dilation=0, filter_iters=0)], 0, color=255, thickness=cv2.FILLED)
+        self.img = cutout_img
 
     def set_natural_img(self, natural_img):
         self.natural_img = natural_img
@@ -128,16 +130,17 @@ class ThomasPuzzlePiece:
         
         return self.box_raw
 
-    def get_largest_contour(self, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2) :
+    def get_largest_contour(self, image = None, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2) :
+        if image is None:
+            image = self.img
         # Compute a contour and then use the largest countour to build a bounding box
-        filtered = self.img
+        filtered = image
         for i in range(filter_iters):
             filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
             filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
         
         # Old contour based box:
-        print(filtered)
-        contours, hierarchy = cv2.findContours(filtered, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours, hierarchy = cv2.findContours(filtered, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         biggest_contour = max(contours, key = cv2.contourArea)
         return biggest_contour
 
@@ -207,9 +210,6 @@ class ThomasPuzzlePiece:
         binary = cv2.erode(binary,  kernel, iterations=N)
         binary = cv2.dilate(binary, kernel, iterations=N)
 
-        # import matplotlib.pyplot as plt
-        # plt.imshow(binary)
-
         binary = binary[self.img.shape[0]:2*self.img.shape[0], self.img.shape[1]: 2*self.img.shape[1]]
         
         # Re-find the countour of the base shape.  Again, do not
@@ -222,33 +222,35 @@ class ThomasPuzzlePiece:
 
         # Convert the base shape into a simple polygon.
         polygon = cv2.approxPolyDP(base, SIDELEN/5, closed=True)[:, 0, :]
+        area = cv2.contourArea(polygon, oriented=False)
+        n_pieces = np.round(area/SIDELEN/SIDELEN)
 
         def order_corners(corners):
             # Orders corners from top right clockwise
             mid = np.mean(corners, axis=0)
-            new_corners = np.zeros((4, 2), dtype=np.uint8)
+            new_corners = np.zeros((4, 2))
             for corner in corners - mid:
                 if corner[0] >= 0 :
                     if corner[1] >= 0:
-                        new_corners[0] = corner.copy()
+                        new_corners[0] = corner + mid
                     else:
-                        new_corners[1] = corner.copy()
+                        new_corners[1] = corner + mid
                 else:
                     if corner[1] >= 0:
-                        new_corners[3] = corner.copy()
+                        new_corners[3] = corner + mid
                     else:
-                        new_corners[2] = corner.copy()
+                        new_corners[2] = corner + mid
             return new_corners
 
-        if len(polygon) > 4:
+        if len(polygon) > 4 and n_pieces == 1:
             # Not a rectangle!
             for corners in combinations(polygon, 4):
                 ordered_corners = order_corners(corners)
                 for i in range(len(ordered_corners)):
                     leg1 = ordered_corners[i-1]-ordered_corners[i]
-                    leg1 = leg1.astype(float)/np.linalg.norm(leg1)
+                    leg1 = leg1/np.linalg.norm(leg1)
                     leg2 = ordered_corners[(i+1)%len(ordered_corners)]-ordered_corners[i]
-                    leg2 = leg2.astype(float)/np.linalg.norm(leg2)
+                    leg2 = leg2/np.linalg.norm(leg2)
                     if abs(np.dot(leg1, leg2)) >= ortho_threshold:
                         break
                 else:
@@ -263,7 +265,7 @@ class ThomasPuzzlePiece:
             # too few corners
             pass
 
-        return polygon
+        return np.array(polygon).astype(int)
 
 
     #
@@ -300,8 +302,8 @@ class ThomasPuzzlePiece:
         # multiple pieces) into single pieces.
         N = len(polygon)
         for i in range(N):
-            p1 = polygon[ i,      0, :]
-            p2 = polygon[(i+1)%N, 0, :]
+            p1 = polygon[ i,      :]
+            p2 = polygon[(i+1)%N, :]
 
             # Sub-divide as appropriate.
             n  = int(round(np.linalg.norm(p2-p1) / SIDELEN))
@@ -328,9 +330,11 @@ class ThomasPuzzlePiece:
     #
     #   Process a contour (list of pixels on the boundary) into the sides.
     #
-    def findSides(self, contour=None):
+    def get_sides(self, contour=None):
+        if contour is None:
+            contour = self.get_largest_contour(threshold = 100, erosion = 0, dilation = 0, filter_iters = 0)
         # Create the base polygon.
-        polygon = self.get_corners
+        polygon = self.get_corners()
 
         # Get the indices to the corners.
         indices = self._findCornerIndices(contour, polygon)
@@ -405,8 +409,8 @@ class ThomasPuzzlePiece:
 
     def find_contour_match(self, other_piece, match_threshold=5):
         # Finds the transform from this piece to other_piece based on contour
-        sidesA = other_piece.findSides()
-        sidesB = self.findSides()
+        sidesA = other_piece.get_sides()
+        sidesB = self.get_sides()
         for iA in range(len(sidesA)):
             for iB in range(len(sidesB)):
                 (dx, dy, dtheta, err) = self.compareSides(sidesA[iA], sidesB[iB])
@@ -476,7 +480,6 @@ class ThomasDetector:
         for piece in self.pieces:
             piece.matched = False
 
-        #print(stats)
         for i, stat in enumerate(stats):
             # Background
             if i == 0:

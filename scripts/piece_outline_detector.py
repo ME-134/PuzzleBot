@@ -207,7 +207,7 @@ class Detector:
         self.latestImage = self.crop_raw(self.bridge.imgmsg_to_cv2(msg, "bgr8"))
 
 
-    def snap(self, white_list=None, black_list=None):
+    def snap(self, white_list=None, black_list=None, merge=True):
         if self.latestImage is None:
             rospy.logwarn("[Detector] Waiting for image from camera...")
             while self.latestImage is None:
@@ -216,12 +216,12 @@ class Detector:
         if white_list:
             if black_list:
                 rospy.logwarn("[Detector] Received both white list and black list, using only white list")
-            img = self.last_processed_img
+            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in white_list:
                 # Assume rectangle for now
                 img[shape[0]:shape[2], shape[1]:shape[3]] = self.latestImage[shape[0]:shape[2], shape[1]:shape[3]]
         elif black_list:
-            img = self.latestImage
+            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in black_list:
                 # Assume rectangle for now
                 img[shape[0]:shape[2], shape[1]:shape[3]] = self.last_processed_img[shape[0]:shape[2], shape[1]:shape[3]]

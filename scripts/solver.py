@@ -150,7 +150,7 @@ class Solver:
 
             # Get a view of the available pieces
             self.tasks.append(SolverTask.PutPiecesTogether)
-            self.tasks.append(SolverTask.GetViewCleared)
+            self.tasks.append(SolverTask.GetViewCleared, task_data={'merge': False})
 
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             # Out of scope for now
@@ -168,14 +168,14 @@ class Solver:
             status.assert_ok()
 
             # The camera should have a clear view of the border-region pieces now.
-            self.detector.snap(black_list = [self.get_puzzle_region()])
+            self.detector.snap(black_list = [self.get_puzzle_region()], merge=task_data['merge'])
             self.piece_list = self.detector.pieces.copy()
 
         elif curr_task == SolverTask.GetViewPuzzle:
             status.assert_ok()
 
             # The camera should have a clear view of the puzzle region now.
-            self.detector.snap(white_list = [self.get_puzzle_region()])
+            self.detector.snap(white_list = [self.get_puzzle_region()], merge=task_data['merge'])
             self.piece_list = self.detector.pieces.copy()
 
         # No action required assuming status is OK.

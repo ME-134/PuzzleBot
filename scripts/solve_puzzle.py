@@ -197,7 +197,7 @@ class Controller:
         self.segments = []
 
         # Point where the robot resets to
-        self.reset_pos = np.array([ 0.157, -0.094, 0.25, 0, 0]).reshape((5,1))
+        self.reset_theta = np.array([ -.0859, 2.405, 2.0864, .311, -.471]).reshape((5,1))
         self.mean_theta = np.array([-0.15, 1.15, 1.7, -0.30, -1.31]).reshape((5,1))
         self.left_theta = np.array([.787, 1.025, 1.922, -0.888, -1.478]).reshape((5,1))
 
@@ -228,8 +228,7 @@ class Controller:
 
         rospy.loginfo("Resetting robot")
 
-        guess = np.array([-1.48, 1.83, 1.857, -0.07, 0]).reshape((5,1))
-        goal_theta = self.ikin(self.reset_pos, guess)
+        goal_theta = self.reset_theta
 
         Bounds.assert_theta_valid(goal_theta)
         Bounds.assert_theta_valid(self.lasttheta)

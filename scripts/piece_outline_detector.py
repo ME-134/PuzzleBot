@@ -294,6 +294,9 @@ class Detector:
         # ARUCO
         self.arucoDict   = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_50)
         self.arucoParams = cv2.aruco.DetectorParameters_create()
+        self.aruco_corners_pixel = None
+        self.aruco_pixel = None
+        self.aruco_world = None
 
     def img_sub_callback(self, msg):
         self.save_img(msg)
@@ -313,18 +316,18 @@ class Detector:
         if white_list:
             if black_list:
                 rospy.logwarn("[Detector] Received both white list and black list, using only white list")
-            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8) + 255
+            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in white_list:
                 # Assume rectangle for now
                 img[shape[1]:shape[3], shape[0]:shape[2]] = self.latestImage[shape[1]:shape[3], shape[0]:shape[2]]
         elif black_list:
-            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8) + 255
+            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in black_list:
                 # Assume rectangle for now
                 img[shape[1]:shape[3], shape[0]:shape[2]] = self.last_processed_img[shape[1]:shape[3], shape[0]:shape[2]]
         else:
             img = self.latestImage
-
+        cv2.imwrite("pls.jpg", img)
         bluedots_img, binary_img, free_space_img = self.process(img)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
         self.pub_binary.publish(self.bridge.cv2_to_imgmsg(free_space_img))
@@ -387,6 +390,9 @@ class Detector:
             ids_reorder[i] = np.where(ids == i)[0]
         screens = np.float32([screen1, screen2, screen3, screen4, screen5])[ids_reorder]
         worlds = np.float32([world1, world2, world3, world4])
+        self.aruco_corners_pixel = np.float32(all_corners.reshape((-1, 4, 2)))[ids_reorder]
+        self.aruco_pixel = screens
+        self.aruco_world = worlds
 
         self.transform = cv2.getPerspectiveTransform(screens, worlds)
 
@@ -445,7 +451,7 @@ class Detector:
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         background_lower = (0, 0, 50)
         background_upper = (255, 30, 220)
-        binary = cv2.inRange(hsv, background_lower, background_upper)
+        binary = cv2.inRange(hsv, background_lower, background_upper) 
 
         # Part of the image which is the puzzle pieces
         blocks = 255 - binary

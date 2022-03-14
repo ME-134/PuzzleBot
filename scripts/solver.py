@@ -270,7 +270,7 @@ class Solver:
             pieces = sorted(self.detector.pieces, key=lambda x: -x.area)
             print(pieces)
             self.puzzle_grid.piece = (pieces[0])
-            dx, dy, dtheta = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]))
+            dx, dy, dtheta = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]), match_threshold=7)
             if dx == 0 and dy == 0:
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
@@ -351,8 +351,8 @@ class Solver:
 
             def processpiece(i, first=False):
                 offset = place_offset(locations[i]) if not first else 0
-                offset = 0
-                loc = np.array([720, 350]) + temp_grid.grid_to_pixel(locations[i]) + offset
+                # offset = 0
+                loc = np.array([720, 350]) + temp_grid.grid_to_pixel(locations[i])
                 piece = self.piece_list[i]
                 # Color selected piece
                 color = np.array(piece.color).astype(np.uint8)
@@ -366,7 +366,7 @@ class Solver:
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
                 hackystack.push(SolverTask.LiftPiece)
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc + offset, 'turn': rots[i]*np.pi/2})
                 hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
                 if not first:
                     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
@@ -376,8 +376,8 @@ class Solver:
                 temp_grid.occupied[tuple(locations[i])] = 1
 
             if radial:
-                # Find bottom right
-                target_loc = [2, 2]
+                # Find top right
+                target_loc = [0, 0]
                 for i in range(len(self.piece_list)):
                     if np.all(locations[i] == target_loc):
                         break
@@ -512,6 +512,13 @@ class Solver:
         xmin, ymin, xmax, ymax = self.get_puzzle_region()
         return (slice(ymin, ymax), slice(xmin, xmax))
 
+    def get_aruco_regions(self):
+        xmax = np.max(self.detector.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
+        ymax = np.max(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+        xmin = np.min(self.detector.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
+        ymin = np.min(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+        return np.hstack((xmin, ymin, xmax, ymax)).astype(int)
+
     def find_available_piece_spot(self, piece, rotation):
         '''
         Return a location on the border of the playground which has enough free space
@@ -549,6 +556,15 @@ class Solver:
                 if dummy_piece.overlaps_with_region(self.get_puzzle_region()):
                     break # assume puzzle region is in the bottom-right
 
+                # Piece cannot go to the aruco areas
+                flag = False
+                for region in self.get_aruco_regions():
+                    if dummy_piece.overlaps_with_region(region):
+                        flag = True
+                        break 
+                if flag:
+                    break
+
                 # Piece can only go to where there are no other pieces already
                 elif np.all(free_space[dummy_piece.bounds_slice(padding=15)]):
                     dummy_piece = dummy_piece_copy.copy()
@@ -558,6 +574,11 @@ class Solver:
 
                     # Mark out puzzle territory in red
                     plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
+
+                    # Mark out aruco territory in red
+                    pad = 10
+                    for (xmin, ymin, xmax, ymax) in self.get_aruco_regions():
+                        plan_img[ymin-pad:ymax+pad, xmin-pad:xmax+pad] += np.array([-20, -20, 40], dtype=np.uint8)
 
                     # Mark out spaces that aren't free in red
                     plan_img[free_space.astype(bool) == False] = np.array([0, 0, 200], dtype=np.uint8)

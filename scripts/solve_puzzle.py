@@ -7,6 +7,9 @@
 #
 #   Publish:   /joint_states   sensor_msgs/JointState
 #
+from logging.config import stopListening
+from msilib.sequence import _SequenceType
+from site import setquit
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,7 +38,12 @@ class SafeCubicSpline(CubicSpline):
 
 class GotoSpline(SafeCubicSpline):
     # Use zero initial/final velocities (of same size as positions).
-    def __init__(self, p0, pf, v0=0, vf=0, **kwargs):
+    def __init__(self, p0, pf, **kwargs):
+        v0 = vf = 0*p0
+        if 'v0' in kwargs:
+            v0 = kwargs['v0']
+        if 'vf' in kwargs:
+            vf = kwargs['vf']
         min_time = 1
         speed = 1 # rad per sec
         max_diff = np.max(np.abs(p0 - pf))
@@ -43,12 +51,10 @@ class GotoSpline(SafeCubicSpline):
         assert time >= min_time
         SafeCubicSpline.__init__(self, p0, v0, pf, vf, time, **kwargs)
 
-
 class State(enum.Enum):
-    idle   = 0
-    grav   = 1
-    reset  = 2
-    pickup = 3
+    idle     = 0
+    grav     = 1
+    splining = 2
 
 motor_names = ['Thor/0', 'Thor/6', 'Thor/3', 'Thor/4', 'Thor/2']
 
@@ -80,6 +86,31 @@ class FuncSegment:
         if not self.called:
             self.func()
             self.called = True
+
+def SplineSequence(self):
+    def __init__(self, origin, space='Joint'):
+        self.splines = list()
+        self.space = space
+        self.latest_place = origin
+    def change_space(new_origin, new_space):
+        self.latest_place = new_origin
+        self.space = new_space
+    def append(self, spline):
+        if spline.space() == 'Func':
+            self.splines.append(spline)
+            return
+        assert self.space == spline.space()
+        self.splines.append(spline)
+        self.latest_place, _ = spline.evalutate(spline.duration())
+    def append_goto(self, loc):
+        goto = GotoSpline(self.latest_place, loc, space=self.space)
+        self.splines.append(goto)
+        self.latest_place = loc
+    def append_gotos(self, locs):
+        for loc in locs:
+            self.append_goto(loc)
+    def as_list(self):
+        return self.splines
 
 class Bounds:
     # Note that axis #1 is has a minimum of 0, so it is always above the table.
@@ -158,7 +189,7 @@ class Controller:
             self.lasttheta_state = self.lasttheta = np.array([np.pi/12, np.pi/6, np.pi/4, 0, 0]).reshape((5, 1))#np.pi * np.random.rand(3, 1)
             self.lastthetadot_state = self.lastthetadot = self.lasttheta * 0.01
 
-            
+
         # Create the splines.
         self.segments = []
 
@@ -186,13 +217,13 @@ class Controller:
         self.segments = segments
         self.t0 = self.last_t
         self.index = 0
+        self.state = State.splining
 
     def reset(self, duration = 4):
         # Assumes that the initial theta is valid.
         # Will not attempt to reset a theta which is out of bounds.
 
         rospy.loginfo("Resetting robot")
-        self.state = State.reset
 
         guess = np.array([-1.48, 1.83, 1.857, -0.07, 0]).reshape((5,1))
         goal_theta = self.ikin(self.reset_pos, guess)
@@ -203,7 +234,7 @@ class Controller:
 
         spline = SafeCubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
         self.change_segments([spline])
-        
+
     def perturb(self, piece, space='Joint'):
         # Moves tip in area to perturb pieces in pixel space
         # TODO
@@ -237,12 +268,75 @@ class Controller:
         weight_origin = self.detector.find_aruco(4)
         self.move_piece(weight_origin, weight_destination, pickup_height=pickup_height, hover_amount=.06, place_height=.012)
 
+    def move_to_pixelcoords(self, pixel_destination, turn=0, height=0.05):
+        rospy.loginfo(f"[Controller] Moving arm to {pixel_destination} in pixel space")
+
+        x, y = pixel_destination
+        x, y = self.detector.screen_to_world(x, y)
+        pgoal = np.array([x, y, height, turn, 0]).reshape((5, 1))
+        goal_theta = self.ikin(pgoal, self.mean_theta, step_size=.3)
+        rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
+
+        splines = list()
+        splines.append(GotoSpline(self.lasttheta, goal_theta, v0=self.lastthetadot))
+        self.change_segments(splines)
+
+    def _create_jiggle_spline(center):
+        # only works in task space
+        pos_offset = .004
+        rot_offset = .1
+        duration = 5
+        jiggle_height = 0.014
+        pgoal1 = center + np.array([-pos_offset, -pos_offset, jiggle_height, -rot_offset, 0]).reshape((5, 1))
+        pgoal2 = center + np.array([pos_offset, pos_offset, jiggle_height, rot_offset, 0]).reshape((5, 1))
+        phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
+        freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
+        return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
+
+    def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint'):
+        curr_pos = self.get_current_position()
+        pickup_pos = curr_pos.copy()
+        pickup_pos[2, 0] = -0.014
+        if space == 'Joint':
+            up = self.lasttheta
+            down = self.ikin(pickup_pos, self.lasttheta, step_size=.3)
+        elif space == 'Task':
+            up = curr_pos
+            down = pickup_pos
+        seq = SplineSequence(up, space=space)
+        if jiggle:
+            seq.append_goto(down)
+            seq.append(FuncSegment(lambda: self.set_pump(False)))
+
+            # Jiggle needs to be done in 'Task' space
+            seq.change_space(pickup_pos, 'Task')
+            jiggle_spline = self._create_jiggle_spline(pickup_pos)
+            seq.append_goto(jiggle_spline.evaluate(0)[0])
+            seq.append(jiggle_spline)
+            seq.append_goto(pickup_pos)
+            seq.change_space(down, space)
+
+            seq.append_goto(up)
+        else:
+            seq.append_goto(down)
+            seq.append(FuncSegment(lambda: self.set_pump(False)))
+            seq.append_gotos([down, up])
+
+        self.change_segments(seq.as_list())
+
+    def place_piece(self, jiggle=False, space='Joint'):
+        self._piece_down_up(False, jiggle=jiggle, space=space)
+
+    def lift_piece(self, space='Joint'):
+        self._piece_down_up(True, jiggle=False, space=space)
+
+    # DEPRECATED
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.014):
         # piece_origin and piece_destination given in pixel space
         rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
         if place_height is None:
             # Pickup and place same height by default
-            place_height = pickup_height        
+            place_height = pickup_height
         # move from current pos to piece_origin
         def get_piece_and_hover_thetas(pixel_coords, turn=0):
             x, y = pixel_coords
@@ -311,7 +405,6 @@ class Controller:
             splines.append(GotoSpline(dest_goal, dest_goal, space=space))
             splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))
         self.change_segments(splines)
-        self.state = State.pickup
 
     def idle(self):
         self.change_segments([])
@@ -454,7 +547,7 @@ class Controller:
     def update(self, t):
         if self.t0 is None:
             self.t0 = t
-        
+
         self.last_t = t
 
         #print(self.state)
@@ -503,7 +596,7 @@ class Controller:
         if (self.segments[self.index].space() == 'Joint'):
             # Grab the spline output as joint values.
             (theta, thetadot) = self.segments[self.index].evaluate(t - self.t0)
-            
+
         elif (self.segments[self.index].space() == 'Task'):
             # Grab the spline output as task values.
             # Dim 0-2 are cartesian positions

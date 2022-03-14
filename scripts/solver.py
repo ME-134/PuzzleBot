@@ -17,13 +17,43 @@ from puzzle_grid import PuzzleGrid
 import vision
 
 class SolverTask(enum.Enum):
-    InitAruco = 0
-    GetView = 1
-    SeparatePieces = 2
-    PutPiecesTogether = 3
-    SeparateOverlappingPieces = 4
-    GetViewCleared = 5
-    GetViewPuzzle = 6
+    # HIGH-LEVEL TASKS
+    SeparatePieces = 0
+    PutPiecesTogether = 1
+    SeparateOverlappingPieces = 2
+
+    # LOW-LEVEL TASKS
+    GetView = 3
+    GetViewCleared = 4
+    GetViewPuzzle = 5
+    MoveArm = 6
+    LiftPiece = 7
+    PlacePiece = 8
+
+    # MISC TASKS
+    InitAruco = 9
+
+class TaskStack:
+    def __init__(self):
+        self.tasks = list()
+        self.taskdata = list()
+    def push(self, task, taskdata=None):
+        if taskdata is None:
+            taskdata = dict()
+        self.tasks.append(task)
+        self.taskdata.append(taskdata)
+    def append(self, *args, **kwargs):
+        return self.push(*args, **kwargs)
+    def pop(self):
+        task = self.tasks.pop()
+        taskdata = self.taskdata.pop()
+        return task, taskdata
+    def peek(self):
+        return self.tasks[-1], self.taskdata[-1]
+    def __len__(self):
+        return len(self.tasks)
+    def __bool__(self):
+        return len(self.tasks) > 0
 
 class Status(enum.Enum):
     Ok = 0
@@ -32,17 +62,24 @@ class Status(enum.Enum):
     def ok(self):
         return self == Status.Ok
 
+    def assert_ok(self):
+        if not self.ok():
+            errmsg = f"[Solver] Unknown error: {self}"
+            rospy.logerror(errmsg)
+            raise RuntimeError(errmsg)
+
 class Solver:
     def __init__(self, detector):
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
         self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored4.jpg')
+
         # Stack
-        self.tasks = []
-        self.tasks.append(SolverTask.PutPiecesTogether)
-        self.tasks.append(SolverTask.SeparatePieces)
-        self.tasks.append(SolverTask.InitAruco)
-        self.tasks.append(SolverTask.GetView)
+        self.tasks = TaskStack()
+        self.tasks.push(SolverTask.PutPiecesTogether)
+        self.tasks.push(SolverTask.SeparatePieces)
+        self.tasks.push(SolverTask.InitAruco)
+        self.tasks.push(SolverTask.GetView)
 
         # Series of actions to perform
         self.action_queue = []
@@ -64,74 +101,83 @@ class Solver:
 
     # Public methods
     def notify_action_completed(self, status):
+        '''
+        Tell the Solver that the current task has been completed.
+        The solver then internally figures out what to do next.
+
+        Args: status, which is either OK or some sort of error.
+        Return: None
+        '''
         if not self.tasks:
-            rospy.logerror("[Solver] Action completed recieved but there are no current tasks!")
+            rospy.logwarn("[Solver] Action completed recieved but there are no current tasks!")
+            return
 
-        curr_task = self.tasks[-1]
-        if curr_task == SolverTask.GetView:
-            # The camera should have a clear view of the pieces now.
-            if status.ok():
-                self.detector.snap()
-                self.piece_list = self.detector.pieces.copy()
-                self.tasks.pop()
-            else:
-                errmsg = f"[Solver] Unknown error: {status}"
-                rospy.logerror(errmsg)
-                raise RuntimeError(errmsg)
-        elif curr_task == SolverTask.GetViewCleared:
-            # The camera should have a clear view of the pieces now.
-            if status.ok():
-                self.detector.snap(black_list = [self.get_puzzle_region()])
-                self.piece_list = self.detector.pieces.copy()
-                self.tasks.pop()
-            else:
-                errmsg = f"[Solver] Unknown error: {status}"
-                rospy.logerror(errmsg)
-                raise RuntimeError(errmsg)
-        elif curr_task == SolverTask.GetViewPuzzle:
-            # The camera should have a clear view of the pieces now.
-            if status.ok():
-                self.detector.snap(white_list = [self.get_puzzle_region()])
-                self.piece_list = self.detector.pieces.copy()
-                self.tasks.pop()
-            else:
-                errmsg = f"[Solver] Unknown error: {status}"
-                rospy.logerror(errmsg)
-                raise RuntimeError(errmsg)
+        # Default to the current task being completed
+        # We can add it back to the task stack if needed (esp. for high-level tasks)
+        curr_task, task_data = self.tasks.pop()
 
-        elif curr_task == SolverTask.InitAruco:
-            if status.ok():
-                self.tasks.pop()
-            else:
-                errmsg = f"[Solver] Unknown error: {status}"
-                rospy.logerror(errmsg)
-                raise RuntimeError(errmsg)
+        # HIGH-LEVEL TASKS
+        if curr_task == SolverTask.SeparatePieces:
+            status.assert_ok()
 
-        elif curr_task == SolverTask.SeparatePieces:
-            if status.ok():
-                self.pieces_cleared += 1
-                if self.pieces_cleared == self.num_pieces:
-                    rospy.loginfo(f"[Solver] Cleared all {self.num_pieces} pieces, moving on to next task.")
-                    self.tasks.pop()
+            self.pieces_cleared += 1
+            if self.pieces_cleared == self.num_pieces:
+                rospy.loginfo(f"[Solver] Cleared all {self.num_pieces} pieces, moving on to next task.")
+                return
 
-                # TEMP? Get a new view after every piece
-                self.tasks.append(SolverTask.GetView)
-            else:
-                raise NotImplementedError()
+            # To decide whether we are done separating pieces, we need a clear view of the board first.
+            self.tasks.append(SolverTask.SeparatePieces)
+            self.tasks.append(SolverTask.GetView)
 
         elif curr_task == SolverTask.PutPiecesTogether:
-            if status.ok():
-                self.pieces_solved += 1
-                if self.pieces_solved == self.num_pieces:
-                    rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
-                    self.tasks.pop()
-                self.tasks.append(SolverTask.GetViewCleared)
-            else:
-                raise NotImplementedError()
+            status.assert_ok()
+
+            self.pieces_solved += 1
+            if self.pieces_solved == self.num_pieces:
+                rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
+                return
+
+            # Get a view of the available pieces
+            self.tasks.append(SolverTask.PutPiecesTogether)
+            self.tasks.append(SolverTask.GetViewCleared)
 
         elif curr_task == SolverTask.SeparateOverlappingPieces:
-             raise NotImplementedError()
+            # Out of scope for now
+            raise NotImplementedError()
 
+        # LOW-LEVEL TASKS
+        elif curr_task == SolverTask.GetView:
+            status.assert_ok()
+
+            # The camera should have a clear view of the pieces now.
+            self.detector.snap()
+            self.piece_list = self.detector.pieces.copy()
+
+        elif curr_task == SolverTask.GetViewCleared:
+            status.assert_ok()
+
+            # The camera should have a clear view of the border-region pieces now.
+            self.detector.snap(black_list = [self.get_puzzle_region()])
+            self.piece_list = self.detector.pieces.copy()
+
+        elif curr_task == SolverTask.GetViewPuzzle:
+            status.assert_ok()
+
+            # The camera should have a clear view of the puzzle region now.
+            self.detector.snap(white_list = [self.get_puzzle_region()])
+            self.piece_list = self.detector.pieces.copy()
+
+        # No action required assuming status is OK.
+        elif curr_task == SolverTask.MoveArm:
+            status.assert_ok()
+        elif curr_task == SolverTask.LiftPiece:
+            status.assert_ok()
+        elif curr_task == SolverTask.PlacePiece:
+            status.assert_ok()
+
+        # MISC TASKS
+        elif curr_task == SolverTask.InitAruco:
+            status.assert_ok()
         else:
             raise RuntimeError(f"Unknown task: {curr_task}")
 
@@ -142,59 +188,72 @@ class Solver:
             controller.idle()
             return
 
-        curr_task = self.tasks[-1]
+        curr_task, task_data = self.tasks.peek()
+        rospy.loginfo(f"[Solver] Current task is {curr_task}.")
+
         if curr_task == SolverTask.GetView:
             # If we want to get the view, simply go to the reset position, where
             # the robot arm is not in the camera frame.
-            rospy.loginfo("[Solver] Current task is GetView, sending Reset command.")
+            rospy.loginfo("[Solver] Sending Reset command.")
             controller.reset()
             return
+
         elif curr_task == SolverTask.GetViewCleared:
             # Get a clear view of all the cleared puzzle pieces
-            x, y = self.get_arm_location(controller)
 
             # If the arm is in the puzzle region, we already have a view of the cleared pieces
+            x, y = self.get_arm_location(controller)
             if self.point_in_puzzle_region(self, x, y, buffer=-20):
-                rospy.loginfo("[Solver] Current task is GetViewCleared, but arm is in the puzzle region, moving on to the next task.")
+                rospy.loginfo("[Solver] Arm is in the puzzle region, moving on to the next task.")
+
+                # End this task and attempt to do the next one.
                 self.tasks.pop()
                 return self.apply_next_action(controller)
-            
-            rospy.loginfo("[Solver] Current task is GetViewCleared, and arm is not in the puzzle region, resetting robot.")
+
+            rospy.loginfo("[Solver] Arm is not in the puzzle region, resetting robot.")
             controller.reset()
             return
+
         elif curr_task == SolverTask.GetViewPuzzle:
             # Get a clear view of the puzzle region
-            x, y = self.get_arm_location(controller)
 
             # If the arm is not in the puzzle region, we already have a view of the puzzle region
+            x, y = self.get_arm_location(controller)
             if not self.point_in_puzzle_region(self, x, y, buffer=20):
-                rospy.loginfo("[Solver] Current task is GetViewPuzzle, and arm is not in the puzzle region, moving on to the next task.")
+                rospy.loginfo("[Solver] Arm is not in the puzzle region, moving on to the next task.")
+
+                # End this task and attempt to do the next one.
                 self.tasks.pop()
                 return self.apply_next_action(controller)
-            
-            rospy.loginfo("[Solver] Current task is GetViewPuzzle, and arm is in the puzzle region, resetting robot.")
+
+            rospy.loginfo("[Solver] Arm is in the puzzle region, resetting robot.")
             controller.reset()
             return
 
         elif curr_task == SolverTask.InitAruco:
-            # If we want to get the view, simply go to the reset position, where
-            # the robot arm is not in the camera frame.
-            rospy.loginfo("[Solver] Current task is InitAruco, sending Reset command.")
             self.detector.init_aruco()
             return
 
+        elif curr_task == SolverTask.MoveArm:
+            controller.move_to_pixelcoords(task_data['dest'], turn=task_data['turn'])
+            return
+
+        elif curr_task == SolverTask.LiftPiece:
+            controller.lift_piece()
+            return
+
+        elif curr_task == SolverTask.PlacePiece:
+            controller.place_piece(jiggle=task_data['jiggle'])
+            return
+
+        # HIGH-LEVEL TASKS
         elif curr_task == SolverTask.SeparatePieces:
             # We are trying to clear the center of the playground to make room for
             # the completed puzzle. At the same time, we are rotating all the pieces
             # to their correct orientation.
-            rospy.loginfo("[Solver] Current task is SeparatePieces, sending PieceMove command.")
 
             for piece in sorted(self.piece_list, key=lambda piece: piece.xmin):
-                # Make sure piece is not already separated
-                #if np.all(piece.get_center() > self.separated_loc - np.array([5, 5])):
-                #    continue
 
-                # Find piece which is not rotated correctly or is in the center
                 rotation_offset = self.get_rotation_offset(piece.img)
                 ### TEMP
                 rotation_offset *= -1
@@ -203,60 +262,61 @@ class Solver:
                 rotation_offset %= np.pi / 2
                 rotation_offset -= np.pi / 4
 
-                print("rotation offset: ", rotation_offset)
+                rospy.loginfo(f"rotation offset: {rotation_offset}")
                 ### END TEMP
+
+                # Select piece which is not rotated correctly or is in the puzzle region
                 threshold_rotation_error = 0.18
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
                 if piece.overlaps_with_region(self.get_puzzle_region()):
                     break
             else:
-                # Nothing more to do in the current task!
+                # All pieces have been cleared from the puzzle region
                 rospy.logwarn("[Solver] No pieces left to separate, continuing to next solver task.")
                 self.tasks.pop()
                 return self.apply_next_action(controller)
 
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
-            controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
+
+            # Add in reverse
+            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination})
+            self.tasks.push(SolverTask.LiftPiece)
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_origin})
+
+            # controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
             return
 
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
-            rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
-            class call_me():
-                def __init__(self, *args, **kwargs):
-                    self.args = args
-                    self.kwargs = kwargs
-                def __call__(self):
-                    controller.move_piece(*self.args, **self.kwargs)
-            print(self.action_queue)
-            if self.action_queue:
-                f = self.action_queue.pop(0)
-                f()
-                return
+
 
             locations, rots, scores = self.vision.match_all(self.piece_list)
-            loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[0])
-            controller.move_piece(self.piece_list[0].get_location(), loc, turn = rots[0]*np.pi/2, jiggle=False)
-            self.puzzle_grid.occupied[tuple(locations[0])] = 1
             done = False
+            hackystack = TaskStack() # temporary hacky solution
             while not done:
                 done = True
-                for i in range(1, len(self.piece_list)):
+                for i in range(len(self.piece_list)):
                     # Puts pieces in an order where they mate
-                    if scores[i] < 99999 and self.puzzle_grid.occupied[tuple(locations[i])] == 0 and self.puzzle_grid.does_mate(locations[i]):
+                    if (i == 0) or (scores[i] < 99999 and \
+                                    self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
+                                    self.puzzle_grid.does_mate(locations[i])):
                         loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
-                        # weight_destination = self.puzzle_grid.get_neighbor(locations[i])
-                        # weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
-                        # weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
-                        # self.action_queue.append(call_me(controller.move_weight(weight_destination)))
-                        self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
+
+                        # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
+                        hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
+                        hackystack.push(SolverTask.LiftPiece)
+                        hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
+                        hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                        # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                         self.puzzle_grid.occupied[tuple(locations[i])] = 1
                         done = False
-            print(self.puzzle_grid.occupied.transpose())
-            self.action_queue.append(self.tasks.pop)
+            while len(hackystack) > 0:
+                task, taskdata = hackystack.pop()
+                self.tasks.push(task, taskdata=taskdata)
 
             # target_piece = self.reference_pieces[self.pieces_solved]
             # for piece in self.piece_list:
@@ -290,6 +350,7 @@ class Solver:
             #         controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=False)
             #     return
         elif curr_task == SolverTask.SeparateOverlappingPieces:
+            # Out of scope for now.
             raise NotImplementedError()
 
         else:
@@ -343,12 +404,12 @@ class Solver:
         Return (xmin, ymin, xmax, ymax) in pixel space
         representing the region where we want the solved puzzle to end up.
         '''
-        
+
         return 0
 
     def get_screen_region(self):
         return (0, 0, 1780, 1080)
-    
+
     def get_puzzle_region_as_slice(self):
         xmin, ymin, xmax, ymax = self.get_puzzle_region()
         return (slice(ymin, ymax), slice(xmin, xmax))
@@ -381,7 +442,7 @@ class Solver:
                 # plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
                 # plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
                 # self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
-                
+
                 if not dummy_piece.fully_contained_in_region(self.get_screen_region()):
                     continue
 

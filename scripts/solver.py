@@ -26,12 +26,34 @@ class SolverTask(enum.Enum):
     GetView = 3
     GetViewCleared = 4
     GetViewPuzzle = 5
-    MovePiece = 6
+    MoveArm = 6
     LiftPiece = 7
     PlacePiece = 8
 
     # MISC TASKS
     InitAruco = 9
+
+class TaskStack:
+    def __init__(self):
+        self.tasks = list()
+        self.taskdata = list()
+    def push(self, task, taskdata=None):
+        if taskdata is None:
+            taskdata = dict()
+        self.tasks.append(task)
+        self.taskdata.append(taskdata)
+    def append(self, *args, **kwargs):
+        return self.push(*args, **kwargs)
+    def pop(self):
+        task = self.tasks.pop()
+        taskdata = self.taskdata.pop()
+        return task, taskdata
+    def peek(self):
+        return self.tasks[-1], self.taskdata[-1]
+    def __len__(self):
+        return len(self.tasks)
+    def __bool__(self):
+        return len(self.tasks) > 0
 
 class Status(enum.Enum):
     Ok = 0
@@ -53,11 +75,11 @@ class Solver:
         self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored4.jpg')
 
         # Stack
-        self.tasks = []
-        self.tasks.append(SolverTask.PutPiecesTogether)
-        self.tasks.append(SolverTask.SeparatePieces)
-        self.tasks.append(SolverTask.InitAruco)
-        self.tasks.append(SolverTask.GetView)
+        self.tasks = TaskStack()
+        self.tasks.push(SolverTask.PutPiecesTogether)
+        self.tasks.push(SolverTask.SeparatePieces)
+        self.tasks.push(SolverTask.InitAruco)
+        self.tasks.push(SolverTask.GetView)
 
         # Series of actions to perform
         self.action_queue = []
@@ -92,7 +114,7 @@ class Solver:
 
         # Default to the current task being completed
         # We can add it back to the task stack if needed (esp. for high-level tasks)
-        curr_task = self.tasks.pop()
+        curr_task, task_data = self.tasks.pop()
 
         # HIGH-LEVEL TASKS
         if curr_task == SolverTask.SeparatePieces:
@@ -146,7 +168,7 @@ class Solver:
             self.piece_list = self.detector.pieces.copy()
 
         # No action required assuming status is OK.
-        elif curr_task == SolverTask.MovePiece:
+        elif curr_task == SolverTask.MoveArm:
             status.assert_ok()
         elif curr_task == SolverTask.LiftPiece:
             status.assert_ok()
@@ -166,7 +188,7 @@ class Solver:
             controller.idle()
             return
 
-        curr_task = self.tasks[-1]
+        curr_task, task_data = self.tasks.peek()
         rospy.loginfo(f"[Solver] Current task is {curr_task}.")
 
         if curr_task == SolverTask.GetView:
@@ -174,10 +196,6 @@ class Solver:
             # the robot arm is not in the camera frame.
             rospy.loginfo("[Solver] Sending Reset command.")
             controller.reset()
-            return
-
-        elif curr_task == SolverTask.GetViewCleared:
-            self.detector.init_aruco()
             return
 
         elif curr_task == SolverTask.GetViewCleared:
@@ -216,8 +234,8 @@ class Solver:
             self.detector.init_aruco()
             return
 
-        elif curr_task == SolverTask.MovePiece:
-            controller.move_to(piece_destination, turn=rotation_offset)
+        elif curr_task == SolverTask.MoveArm:
+            controller.move_to_pixelcoords(task_data['dest'], turn=task_data['turn'])
             return
 
         elif curr_task == SolverTask.LiftPiece:
@@ -225,7 +243,7 @@ class Solver:
             return
 
         elif curr_task == SolverTask.PlacePiece:
-            controller.place_piece(jiggle=True)
+            controller.place_piece(jiggle=task_data['jiggle'])
             return
 
         # HIGH-LEVEL TASKS
@@ -261,45 +279,44 @@ class Solver:
 
             piece_origin = piece.get_center()
             piece_destination = self.find_available_piece_spot(piece, rotation_offset)
-            controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
+
+            # Add in reverse
+            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination})
+            self.tasks.push(SolverTask.LiftPiece)
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_origin})
+
+            # controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
             return
 
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
-            rospy.loginfo("[Solver] Current task is PutPiecesTogether, sending PieceMove command.")
-            class call_me():
-                def __init__(self, *args, **kwargs):
-                    self.args = args
-                    self.kwargs = kwargs
-                def __call__(self):
-                    controller.move_piece(*self.args, **self.kwargs)
-            print(self.action_queue)
-            if self.action_queue:
-                f = self.action_queue.pop(0)
-                f()
-                return
+
 
             locations, rots, scores = self.vision.match_all(self.piece_list)
-            loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[0])
-            controller.move_piece(self.piece_list[0].get_location(), loc, turn = rots[0]*np.pi/2, jiggle=False)
-            self.puzzle_grid.occupied[tuple(locations[0])] = 1
             done = False
+            hackystack = TaskStack() # temporary hacky solution
             while not done:
                 done = True
-                for i in range(1, len(self.piece_list)):
+                for i in range(len(self.piece_list)):
                     # Puts pieces in an order where they mate
-                    if scores[i] < 99999 and self.puzzle_grid.occupied[tuple(locations[i])] == 0 and self.puzzle_grid.does_mate(locations[i]):
+                    if (i == 0) or (scores[i] < 99999 and \
+                                    self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
+                                    self.puzzle_grid.does_mate(locations[i])):
                         loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
-                        # weight_destination = self.puzzle_grid.get_neighbor(locations[i])
-                        # weight_pos_offset = np.array(weight_destination) - np.array(locations[i])
-                        # weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
-                        # self.action_queue.append(call_me(controller.move_weight(weight_destination)))
-                        self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
+
+                        # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
+                        hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
+                        hackystack.push(SolverTask.LiftPiece)
+                        hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
+                        hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                        # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                         self.puzzle_grid.occupied[tuple(locations[i])] = 1
                         done = False
-            print(self.puzzle_grid.occupied.transpose())
-            self.action_queue.append(self.tasks.pop)
+            while len(hackystack) > 0:
+                task, taskdata = hackystack.pop()
+                self.tasks.push(task, taskdata=taskdata)
 
             # target_piece = self.reference_pieces[self.pieces_solved]
             # for piece in self.piece_list:

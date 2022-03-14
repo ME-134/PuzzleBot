@@ -227,7 +227,7 @@ class Solver:
 
                 # End this task and attempt to do the next one.
                 self.tasks.pop()
-            
+
             else:
                 rospy.loginfo("[Solver] Arm is not in the puzzle region, resetting robot.")
                 controller.reset()
@@ -310,9 +310,9 @@ class Solver:
             else:
                 # All pieces have been cleared from the puzzle region
                 rospy.loginfo("[Solver] No pieces left to separate, continuing to next solver task.")
-                
+
                 # TODO: in the future, we might want to not pop, so that
-                # we can recover from errors. 
+                # we can recover from errors.
                 self.tasks.pop()
                 return self.apply_next_action(controller)
 
@@ -339,14 +339,27 @@ class Solver:
             hackystack = TaskStack() # temporary hacky solution
             temp_grid = PuzzleGrid()
 
+            plan_img = self.detector.latestImage.copy()
+
+            # Mark out puzzle territory in green
+            plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 40, 0], dtype=np.uint8)
+
             def place_offset(location, offset=50):
                 print(temp_grid.get_neighbors(location), location)
                 neighbors = temp_grid.get_neighbors(location) - location
                 return -neighbors.sum(axis=0) * offset
-            
+
             def processpiece(i, first=False):
                 offset = place_offset(locations[i]) if not first else 0
                 loc = np.array([720, 350]) + temp_grid.grid_to_pixel(locations[i]) + offset
+
+                # Color selected piece
+                plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
+                dummy_piece = piece.copy()
+                dummy_piece.rotate(rots[i]*np.pi/2)
+                dummy_piece.move_to(loc[0], loc[1])
+                plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
+                plan_img[dummy_piece.mask.astype(bool)] += piece.color.astype(np.uint8)
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
@@ -395,7 +408,10 @@ class Solver:
             while len(hackystack) > 0:
                 task, task_data = hackystack.pop()
                 self.tasks.push(task, task_data=task_data)
-            
+
+            self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
+
+
             # target_piece = self.reference_pieces[self.pieces_solved]
             # for piece in self.piece_list:
             #     if piece.fully_contained_in_region(self.get_puzzle_region()):

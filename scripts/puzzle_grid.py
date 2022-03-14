@@ -22,6 +22,7 @@ class PuzzleGrid():
         self.grid_centers = np.array(
             [[[offset_x + i*spacing_width, offset_y + j*spacing_height]for j in range(height_n)] for i in range(width_n)]
         )
+        self.piece = None
 
     
     def get_open_spot(self):
@@ -57,19 +58,20 @@ class PuzzleGrid():
             if (min_norm1 < 2*self.spacing):
                 self.occupied[x_min, y_min] = 1
     
-    def get_neighbor(self, loc):
+    def get_neighbors(self, loc):
         '''
-            Returns neighbor in completed puzzle
+            Returns neighbors in completed puzzle
         '''
+        neighbors = []
         if loc[0]+1 < self.width_n and self.occupied[loc[0]+1, loc[1]] != 0:
-            return [loc[0]+1, loc[1]]
-        if loc[0]-1 > 0 and self.occupied[loc[0]-1, loc[1]] != 0:
-            return [loc[0]-1, loc[1]]
+            neighbors.append([loc[0]+1, loc[1]])
+        if loc[0]-1 >= 0 and self.occupied[loc[0]-1, loc[1]] != 0:
+            neighbors.append([loc[0]-1, loc[1]])
         if loc[1]+1 < self.height_n and self.occupied[loc[0], loc[1]+1] != 0:
-            return [loc[0], loc[1]+1]
-        if loc[1]-1 < 0 and self.occupied[loc[0], loc[1]-1] != 0:
-            return [loc[0], loc[1]-1]
-        return None
+            neighbors.append([loc[0], loc[1]+1])
+        if loc[1]-1 >= 0 and self.occupied[loc[0], loc[1]-1] != 0:
+            neighbors.append([loc[0], loc[1]-1])
+        return np.array(neighbors)
 
     def does_mate(self, loc):
         '''

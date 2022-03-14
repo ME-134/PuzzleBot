@@ -1,5 +1,13 @@
 import cv2
 import numpy as np
+from itertools import combinations
+
+# Set the approximate piece side length (in pixels).  This is used to
+# sub-divide the long side of connected pieces.
+SIDELEN = 125
+
+# Set the number of points per side to match against another side.
+SIDEPOINTS = 20
 
 def calc_rotation(biggest_contour, step = 2, n_thetas = 90):
     biggest_contour = biggest_contour.reshape(-1, 2)
@@ -66,7 +74,9 @@ class ThomasPuzzlePiece:
         self.y = y
 
     def set_img(self, img):
-        self.img = img
+        cutout_img = np.zeros_like(img)
+        cv2.drawContours(cutout_img, [self.get_largest_contour(image=img, erosion=0, dilation=0, filter_iters=0)], 0, color=255, thickness=cv2.FILLED)
+        self.img = cutout_img
 
     def set_natural_img(self, natural_img):
         self.natural_img = natural_img
@@ -97,9 +107,12 @@ class ThomasPuzzlePiece:
             return True
         return False
     
-    def get_bounding_box(self, threshold = 100, erosion = 3, dilation = 3, filter_iters = 0):
+    def get_bounding_box(self, img = None, threshold = 100, erosion = 3, dilation = 3, filter_iters = 0):
         # Compute a contour and then use the largest countour to build a bounding box
-        filtered = self.img
+        if img:
+            filtered = img
+        else:
+            filtered = self.img
         for i in range(filter_iters):
             filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
             filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
@@ -117,15 +130,17 @@ class ThomasPuzzlePiece:
         
         return self.box_raw
 
-    def get_largest_contour(self, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2) :
+    def get_largest_contour(self, image = None, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2) :
+        if image is None:
+            image = self.img
         # Compute a contour and then use the largest countour to build a bounding box
-        filtered = self.img
+        filtered = image
         for i in range(filter_iters):
             filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
             filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
         
         # Old contour based box:
-        contours, hierarchy = cv2.findContours(filtered, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours, hierarchy = cv2.findContours(filtered, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         biggest_contour = max(contours, key = cv2.contourArea)
         return biggest_contour
 
@@ -175,6 +190,236 @@ class ThomasPuzzlePiece:
         M = cv2.getPerspectiveTransform(box.astype(np.float32), dst)
         warped = cv2.warpPerspective(self.natural_img, M, (maxWidth, maxHeight))
         return warped
+
+    def get_corners(self, ortho_threshold=.05):
+        '''Finds the corners of the underlying polygon of the shape'''
+        # Create a blank image, to allow the erosion and dilation without
+        # interferring with other image elements.
+        binary = np.zeros(np.array(self.img.shape)*3, dtype=np.uint8)
+        binary[self.img.shape[0]:2*self.img.shape[0], self.img.shape[1]: 2*self.img.shape[1]] = self.img
+
+        # kernel = np.array([[0, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [0, 1, 1, 1, 0]], dtype=np.uint8)
+        kernel = None
+        # Dilate and erode to remove the holes.
+        N = int(SIDELEN/8)
+        binary = cv2.dilate(binary, kernel, iterations=N)
+        binary = cv2.erode(binary,  kernel, iterations=N)
+
+        # Erode and dilate to remove the tabs.
+        N = int(SIDELEN/6)
+        binary = cv2.erode(binary,  kernel, iterations=N)
+        binary = cv2.dilate(binary, kernel, iterations=N)
+
+        binary = binary[self.img.shape[0]:2*self.img.shape[0], self.img.shape[1]: 2*self.img.shape[1]]
+        
+        # Re-find the countour of the base shape.  Again, do not
+        # approximate, so we get the full list of pixels on the boundary.
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
+                                    cv2.CHAIN_APPROX_NONE)
+        if len(contours) == 0:
+            return np.empty((0,1,2))
+        base = contours[0]
+
+        # Convert the base shape into a simple polygon.
+        polygon = cv2.approxPolyDP(base, SIDELEN/5, closed=True)[:, 0, :]
+        area = cv2.contourArea(polygon, oriented=False)
+        n_pieces = np.round(area/SIDELEN/SIDELEN)
+
+        def order_corners(corners):
+            # Orders corners from top right clockwise
+            mid = np.mean(corners, axis=0)
+            new_corners = np.zeros((4, 2))
+            for corner in corners - mid:
+                if corner[0] >= 0 :
+                    if corner[1] >= 0:
+                        new_corners[0] = corner + mid
+                    else:
+                        new_corners[1] = corner + mid
+                else:
+                    if corner[1] >= 0:
+                        new_corners[3] = corner + mid
+                    else:
+                        new_corners[2] = corner + mid
+            return new_corners
+
+        if len(polygon) > 4 and n_pieces == 1:
+            # Not a rectangle!
+            for corners in combinations(polygon, 4):
+                ordered_corners = order_corners(corners)
+                for i in range(len(ordered_corners)):
+                    leg1 = ordered_corners[i-1]-ordered_corners[i]
+                    leg1 = leg1/np.linalg.norm(leg1)
+                    leg2 = ordered_corners[(i+1)%len(ordered_corners)]-ordered_corners[i]
+                    leg2 = leg2/np.linalg.norm(leg2)
+                    if abs(np.dot(leg1, leg2)) >= ortho_threshold:
+                        break
+                else:
+                    polygon = corners
+                    break
+            else:
+                # Couldn't find a good solution
+                pass
+        elif len(polygon) == 4:
+            polygon = order_corners(polygon)
+        else:
+            # too few corners
+            pass
+
+        return np.array(polygon).astype(int)
+
+
+    #
+    #   Corner Indicies
+    #
+    #   Create a list of puzzle piece corners.  This also works on
+    #   connected pieces, effectively sub-dividing long sides.
+    #
+    def _refineCornerIndex(self, contour, index):
+        # Set up the parameters.
+        N = len(contour)
+        D = int(SIDELEN/6)          # Search a range +/- from the given
+        d = int(SIDELEN/8)          # Compute the angle +/- this many pixels
+        
+        # Search for the best corner fit, checking +/- the given index.
+        maxvalue = 0
+        for i in range(index-D,index+D+1):
+            p  = contour[(i  )%N, 0, :]
+            da = contour[(i-d)%N, 0, :] - p
+            db = contour[(i+d)%N, 0, :] - p
+            value = (da[0]*db[1] - da[1]*db[0])**2
+            if value > maxvalue:
+                maxvalue = value
+                index    = i%N
+
+        # Return the best index.
+        return(index)
+
+    def _findCornerIndices(self, contour, polygon):
+        # Prepare the list of corner indices.
+        indices = []
+
+        # Loop of the polygon points, sub-dividing long lines (across
+        # multiple pieces) into single pieces.
+        N = len(polygon)
+        for i in range(N):
+            p1 = polygon[ i,      :]
+            p2 = polygon[(i+1)%N, :]
+
+            # Sub-divide as appropriate.
+            n  = int(round(np.linalg.norm(p2-p1) / SIDELEN))
+            for j in range(n):
+                p = p1*(n-j)/n + p2*j/n
+
+                # Find the lowest distance to all contour points.
+                d = np.linalg.norm(contour-p, axis=2)
+                index = int(np.argmin(d, axis=0))
+
+                # Refine the corner index for real corners.
+                if (j == 0):
+                    index = self._refineCornerIndex(contour, index)
+
+                # Use that index.
+                indices.append(index)
+
+        # Return the indices.
+        return(indices)
+
+    
+    #
+    #   Find Sides
+    #
+    #   Process a contour (list of pixels on the boundary) into the sides.
+    #
+    def get_sides(self, contour=None):
+        if contour is None:
+            contour = self.get_largest_contour(threshold = 100, erosion = 0, dilation = 0, filter_iters = 0)
+        # Create the base polygon.
+        polygon = self.get_corners()
+
+        # Get the indices to the corners.
+        indices = self._findCornerIndices(contour, polygon)
+
+        # Pull out the sides between the indicies.
+        sides = []
+        N = len(indices)
+        for i in range(N):
+            index1 = indices[i]
+            index2 = indices[(i+1)%N]
+            if (index1 <= index2):
+                side = contour[index1:index2, 0, :]
+            else:
+                side = np.vstack((contour[index1:, 0, :],
+                                contour[0:index2, 0, :]))
+            sides.append(side)
+
+
+        # Check the number of pieces (just for fun).
+        A = cv2.contourArea(polygon, oriented=False)
+        n = np.round(A/SIDELEN/SIDELEN)
+        print("Guessing contour has %d pieces" % n)
+
+        # Return the sides
+        return sides
+
+
+    #
+    #   Check the Translation/Orientation/Match between 2 Sides
+    #
+    def compareSides(self, sideA, sideB):
+        center = self.get_location()
+        # Grab the points from the two sides, relative to the center.
+        M  = SIDEPOINTS
+        iA = [int(round(j*(len(sideA)-1)/(M-1))) for j in range(M)]
+        iB = [int(round(j*(len(sideB)-1)/(M-1))) for j in range(M-1,-1,-1)]
+        pA = sideA[iA] - center
+        pB = sideB[iB] - center
+
+        # Pull out a list of the x/y coordinqtes.
+        xA = pA[:,0].reshape((-1, 1))
+        yA = pA[:,1].reshape((-1, 1))
+        xB = pB[:,0].reshape((-1, 1))
+        yB = pB[:,1].reshape((-1, 1))
+        c0 = np.zeros((M,1))
+        c1 = np.ones((M,1))
+
+        # Build up the least squares problem for 4 parameters: dx, dy, cos, sin
+        b  = np.hstack(( xA, yA)).reshape((-1,1))
+        A1 = np.hstack(( c1, c0)).reshape((-1,1))
+        A2 = np.hstack(( c0, c1)).reshape((-1,1))
+        A3 = np.hstack((-yB, xB)).reshape((-1,1))
+        A4 = np.hstack(( xB, yB)).reshape((-1,1))
+        A  = np.hstack((A1, A2, A3, A4))
+
+        param = np.linalg.pinv(A.transpose() @ A) @ (A.transpose() @ b)
+        dtheta = np.arctan2(param[2][0], param[3][0])
+
+        # Rebuild the least squares problem for 2 parameters: dx, dy
+        b = b - A @ np.array([0, 0, np.sin(dtheta), np.cos(dtheta)]).reshape(-1,1)
+        A = A[:, 0:2]
+
+        param = np.linalg.pinv(A.transpose() @ A) @ (A.transpose() @ b)
+        dx = param[0][0]
+        dy = param[1][0]
+
+        # Check the residual error.
+        err = np.linalg.norm(b - A @ param) / np.sqrt(M)
+
+        # Return the data.
+        return (dx, dy, dtheta, err)
+
+    def find_contour_match(self, other_piece, match_threshold=5):
+        # Finds the transform from this piece to other_piece based on contour
+        sidesA = other_piece.get_sides()
+        sidesB = self.get_sides()
+        for iA in range(len(sidesA)):
+            for iB in range(len(sidesB)):
+                (dx, dy, dtheta, err) = self.compareSides(sidesA[iA], sidesB[iB])
+                if err < match_threshold:
+                    return dx, dy, dtheta
+        
+        return 0, 0, 0
+        
+
 
 class ThomasDetector:
     def __init__(self):
@@ -235,7 +480,6 @@ class ThomasDetector:
         for piece in self.pieces:
             piece.matched = False
 
-        #print(stats)
         for i, stat in enumerate(stats):
             # Background
             if i == 0:

@@ -17,6 +17,7 @@ import numpy as np
 import random
 
 import os
+from itertools import combinations
 
 from std_msgs.msg      import Bool
 from sensor_msgs.msg   import Image, CameraInfo
@@ -145,6 +146,89 @@ class PuzzlePiece:
             if (xmin < x < xmax) and (ymin < y < ymax):
                 return True
         return False
+
+    def find_corners(self):
+        mask = self.mask.copy()
+        mask = cv2.dilate(mask, None, iterations=2)
+        mask = cv2.erode(mask, None, iterations=2)
+        mask[mask == 1] = 255
+        mask = mask.astype(np.uint8)
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours[0]
+        contours = contours[:, 0, :]
+        
+        hull = cv2.convexHull(contours.astype(np.float32))[:, 0, :]
+        
+        def dist(a, b):
+            return np.linalg.norm(a-b)
+            
+        def angle(a, b, c):
+            v1 = a - b
+            v2 = c - b
+            return np.arccos(np.sum(v1*v2)/(np.linalg.norm(v1)*np.linalg.norm(v2)))
+        
+        # filter out small angles
+        candidates = list(np.int0(hull))
+        done = False
+        while not done:
+            done = True
+            to_remove = list()
+            for i in range(len(candidates)):
+                a = candidates[(i - 1 + len(candidates)) % len(candidates)]
+                b = candidates[i]
+                c = candidates[(i + 1 + len(candidates)) % len(candidates)]
+                if abs(angle(a, b, c) - np.pi) < 0.2:
+                    to_remove.append(i)
+            for i in to_remove[::-1]:
+                candidates.pop(i)
+                done = False
+                
+        centroids = np.array(candidates)
+        
+        # Find 4 best candidates
+        best_score = np.inf
+        best_four = None
+        for four in combinations(candidates, 4):
+            p1, p2, p3, p4 = four
+            
+            ideal_height = 115
+            ideal_width = 135
+            ideal_angle = np.pi/2
+                        
+            score1 = abs(dist(p1,p2)+dist(p3,p4)-2*ideal_width) / 100
+            score1 += abs(dist(p2,p3)+dist(p1,p4)-2*ideal_height) / 100
+            
+            score2 = abs(dist(p1,p2)+dist(p3,p4)-2*ideal_height) / 100
+            score2 += abs(dist(p2,p3)+dist(p1,p4)-2*ideal_width) / 100
+
+            score = min(score1, score2)
+
+            score += ((dist(p1, p2) - dist(p3, p4)) ** 2) / 1000
+            score += ((dist(p2, p3) - dist(p1, p4)) ** 2) / 1000
+            
+            score += abs(angle(p1, p2, p3) - ideal_angle)
+            score += abs(angle(p2, p3, p4) - ideal_angle)
+            score += abs(angle(p3, p4, p1) - ideal_angle)
+            score += abs(angle(p4, p1, p2) - ideal_angle)
+            
+            if score < best_score:
+                best_score = score
+                # print("new best score", best_score)
+                best_four = four
+        return best_four
+
+    def get_aligning_rotation(self):
+        def angle(a, b, c):
+            v1 = a - b
+            v2 = c - b
+            ang = np.arccos(np.sum(v1*v2)/(np.linalg.norm(v1)*np.linalg.norm(v2)))
+            return ang if v1[1] > 0 else -ang
+        p1, p2, p3, p4 = self.find_corners()
+        angle1 = angle(p2, p1, p1 + np.array([1, 0]))
+        angle2 = angle(p3, p4, p4 + np.array([1, 0]))
+        rot = np.mean([angle1, angle2])
+        return -rot
+
 #
 #  Detector Node Class
 #
@@ -207,7 +291,7 @@ class Detector:
         self.latestImage = self.crop_raw(self.bridge.imgmsg_to_cv2(msg, "bgr8"))
 
 
-    def snap(self, white_list=None, black_list=None):
+    def snap(self, white_list=None, black_list=None, merge=True):
         if self.latestImage is None:
             rospy.logwarn("[Detector] Waiting for image from camera...")
             while self.latestImage is None:
@@ -216,15 +300,15 @@ class Detector:
         if white_list:
             if black_list:
                 rospy.logwarn("[Detector] Received both white list and black list, using only white list")
-            img = self.last_processed_img
+            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in white_list:
                 # Assume rectangle for now
-                img[shape[0]:shape[2], shape[1]:shape[3]] = self.latestImage[shape[0]:shape[2], shape[1]:shape[3]]
+                img[shape[1]:shape[3], shape[0]:shape[2]] = self.latestImage[shape[1]:shape[3], shape[0]:shape[2]]
         elif black_list:
-            img = self.latestImage
+            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in black_list:
                 # Assume rectangle for now
-                img[shape[0]:shape[2], shape[1]:shape[3]] = self.last_processed_img[shape[0]:shape[2], shape[1]:shape[3]]
+                img[shape[1]:shape[3], shape[0]:shape[2]] = self.last_processed_img[shape[1]:shape[3], shape[0]:shape[2]]
         else:
             img = self.latestImage
 
@@ -439,6 +523,9 @@ class Detector:
             r = int(np.sqrt(piece.area) / 4) + 1
             color = piece.get_color()
             cv2.circle(img, piece.get_center(), r, color, -1)
+
+            for i, corner in enumerate(piece.find_corners()):
+                cv2.circle(img, tuple(corner), 5 + 3 * i, color, -1)
 
         #markers[res != 0] = 255
 

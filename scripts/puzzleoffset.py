@@ -212,8 +212,6 @@ def findSides(image, contour):
     fillContour(imagecopy, polygon, (200, 200, 200))
     for index in indices:
         cv2.circle(imagecopy, tuple(contour[index,0,:]), 3, (0, 0, 255), -1)
-    cv2.imshow("Base polygon and corners", imagecopy)
-    cv2.waitKey(0)
 
     # Return the sides
     return sides

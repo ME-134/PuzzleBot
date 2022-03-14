@@ -436,5 +436,8 @@ class VisionMatcher():
             return locations, rots, match_scores  # locations[i] gives grid location of piece i
         else:
             raise Exception("Not Implemented")
+    
+    def get_largest_piece(self):
+        return max(self.pieces, key=lambda x: x.area)
 
     

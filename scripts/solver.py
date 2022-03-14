@@ -289,7 +289,8 @@ class Solver:
 
             for piece in sorted(self.piece_list, key=lambda piece: piece.xmin):
 
-                rotation_offset = self.get_rotation_offset(piece.img)
+                # rotation_offset = self.get_rotation_offset(piece.img)
+                rotation_offset = piece.get_aligning_rotation()
                 ### TEMP
                 rotation_offset *= -1
 

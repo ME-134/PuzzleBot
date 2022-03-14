@@ -29,6 +29,7 @@ class SolverTask(enum.Enum):
     MoveArm = 6
     LiftPiece = 7
     PlacePiece = 8
+    MatePiece = 10
 
     # MISC TASKS
     InitAruco = 9
@@ -185,6 +186,8 @@ class Solver:
             status.assert_ok()
         elif curr_task == SolverTask.PlacePiece:
             status.assert_ok()
+        elif curr_task == SolverTask.MatePiece:
+            status.assert_ok()
 
         # MISC TASKS
         elif curr_task == SolverTask.InitAruco:
@@ -262,6 +265,21 @@ class Solver:
             controller.place_piece(jiggle=task_data['jiggle'])
             return
 
+        elif curr_task == SolverTask.MatePiece:
+            pieces = list.sort(controller.vision.pieces, key=lambda x: -x.area)
+            controller.puzzle_grid.piece = pieces[0]
+            dx, dy, dtheta = pieces[1].find_contour_match(pieces[0])
+            if dx == 0 and dy == 0:
+                piece_destination = self.find_available_piece_spot(pieces[1], 0)
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
+            else:
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
+            hackystack.push(SolverTask.LiftPiece)
+            hackystack.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
+            return
+
         # HIGH-LEVEL TASKS
         elif curr_task == SolverTask.SeparatePieces:
             # We are trying to clear the center of the playground to make room for
@@ -312,35 +330,65 @@ class Solver:
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
-
+            radial = True
 
             locations, rots, scores = self.vision.match_all(self.piece_list)
             done = False
             hackystack = TaskStack() # temporary hacky solution
+            temp_grid = PuzzleGrid()
+
+            def place_offset(location, offset=30):
+                neighbors = temp_grid.get_neighbors(location) - location
+                return -neighbors.sum(axis=0) * offset
             
-            def processpiece(i, jiggle=True):
-                loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
+            def processpiece(i, first=False):
+                loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i]) + place_offset(locations[i])
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
                 hackystack.push(SolverTask.LiftPiece)
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': jiggle})
+                if not first:
+                    hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
+                    hackystack.push(SolverTask.MatePiece)
+                else:
+                    hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': not first})
                 # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                 self.puzzle_grid.occupied[tuple(locations[i])] = 1
-            processpiece(0, jiggle=False)
 
-            while not done:
-                done = True
-                for i in range(1, len(self.piece_list)):
-                    # Puts pieces in an order where they mate
-                    if (scores[i] < 99999 and \
-                        self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
-                        self.puzzle_grid.does_mate(locations[i])):
-                        processpiece(i)
-                        done = False
+            if radial:
+                # Find bottom right
+                target_loc = [2, 2]
+                for i in range(len(self.piece_list)):
+                    if np.all(locations[i] == target_loc):
+                        break
+                processpiece(i, first=True)
+                loc_list = list()
+                for i in range(len(self.piece_list)):
+                    loc_list.append([i, locations[i]])
+                list.sort(loc_list, key=lambda x: np.linalg.norm(x[1]-target_loc))
+                while not done:
+                    done = True
+                    for i in range(len(self.piece_list)):
+                        # Puts pieces in an order where they mate
+                        if (scores[i] < 99999 and \
+                            self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
+                            self.puzzle_grid.does_mate(locations[i])):
+                            processpiece(i)
+                            done = False
+            else:
+                processpiece(0, first=True)
+                while not done:
+                    done = True
+                    for i in range(1, len(self.piece_list)):
+                        # Puts pieces in an order where they mate
+                        if (scores[i] < 99999 and \
+                            self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
+                            self.puzzle_grid.does_mate(locations[i])):
+                            processpiece(i)
+                            done = False
+
             while len(hackystack) > 0:
-                print(len(hackystack))
                 task, task_data = hackystack.pop()
                 self.tasks.push(task, task_data=task_data)
             

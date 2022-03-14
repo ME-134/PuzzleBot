@@ -429,9 +429,10 @@ class Controller:
 
     def current_callback(self, msg):
         # Storing current the pump is drawing
-        self.current = msg.data
+        alpha = .8
+        self.current = alpha * msg.data + (1-alpha) * self.current
         if (self.current > 100 and self.pump_value == 0) or (self.current < 100 and self.pump_value == 1):
-            rospy.logwarn("[Controller] Pump is incorrect value - correcting...")
+            rospy.logwarn("[Controller] Pump is pulling too little current - sending another msg")
             self.set_pump(self.pump_value)
 
     def set_pump(self, value):

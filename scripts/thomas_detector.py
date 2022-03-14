@@ -417,7 +417,7 @@ class ThomasPuzzlePiece:
                 if err < match_threshold:
                     return dx, dy, dtheta
         
-        return None
+        return 0, 0, 0
         
 
 

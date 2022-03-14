@@ -266,6 +266,7 @@ class Solver:
             return
 
         elif curr_task == SolverTask.MatePiece:
+            # Matches the two biggest pieces
             pieces = list.sort(controller.vision.pieces, key=lambda x: -x.area)
             controller.puzzle_grid.piece = pieces[0]
             dx, dy, dtheta = pieces[1].find_contour_match(pieces[0])

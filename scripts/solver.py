@@ -222,7 +222,7 @@ class Solver:
 
             # If the arm is in the puzzle region, we already have a view of the cleared pieces
             x, y = self.get_arm_location(controller)
-            if self.point_in_puzzle_region(self, x, y, buffer=-20):
+            if self.point_in_puzzle_region(x, y, buffer=-20):
                 rospy.loginfo("[Solver] Arm is in the puzzle region, moving on to the next task.")
 
                 # End this task and attempt to do the next one.
@@ -238,7 +238,7 @@ class Solver:
 
             # If the arm is not in the puzzle region, we already have a view of the puzzle region
             x, y = self.get_arm_location(controller)
-            if not self.point_in_puzzle_region(self, x, y, buffer=20):
+            if not self.point_in_puzzle_region(x, y, buffer=20):
                 rospy.loginfo("[Solver] Arm is not in the puzzle region, moving on to the next task.")
 
                 # End this task and attempt to do the next one.
@@ -267,19 +267,19 @@ class Solver:
 
         elif curr_task == SolverTask.MatePiece:
             # Matches the two biggest pieces
-            pieces = list.sort(controller.vision.pieces, key=lambda x: -x.area)
-            controller.puzzle_grid.piece = pieces[0]
+            pieces = sorted(self.detector.pieces, key=lambda x: -x.area)
+            print(pieces)
+            self.puzzle_grid.piece = pieces[0]
             dx, dy, dtheta = pieces[1].find_contour_match(pieces[0])
             if dx == 0 and dy == 0:
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
+                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
             else:
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
-            hackystack.push(SolverTask.LiftPiece)
-            hackystack.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
-            return
+                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
+            self.tasks.push(SolverTask.LiftPiece)
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
 
         # HIGH-LEVEL TASKS
         elif curr_task == SolverTask.SeparatePieces:
@@ -302,7 +302,7 @@ class Solver:
                 ### END TEMP
 
                 # Select piece which is not rotated correctly or is in the puzzle region
-                threshold_rotation_error = 0.18
+                threshold_rotation_error = 0.13
                 if abs(rotation_offset) > threshold_rotation_error:
                     break
                 if piece.overlaps_with_region(self.get_puzzle_region()):
@@ -339,24 +339,26 @@ class Solver:
             hackystack = TaskStack() # temporary hacky solution
             temp_grid = PuzzleGrid()
 
-            def place_offset(location, offset=30):
+            def place_offset(location, offset=50):
+                print(temp_grid.get_neighbors(location), location)
                 neighbors = temp_grid.get_neighbors(location) - location
                 return -neighbors.sum(axis=0) * offset
             
             def processpiece(i, first=False):
-                loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i]) + place_offset(locations[i])
+                offset = place_offset(locations[i]) if not first else 0
+                loc = np.array([720, 350]) + temp_grid.grid_to_pixel(locations[i]) + offset
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
                 hackystack.push(SolverTask.LiftPiece)
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
                 if not first:
                     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
                     hackystack.push(SolverTask.MatePiece)
-                else:
-                    hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': not first})
+
                 # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
-                self.puzzle_grid.occupied[tuple(locations[i])] = 1
+                temp_grid.occupied[tuple(locations[i])] = 1
 
             if radial:
                 # Find bottom right
@@ -374,8 +376,8 @@ class Solver:
                     for i in range(len(self.piece_list)):
                         # Puts pieces in an order where they mate
                         if (scores[i] < 99999 and \
-                            self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
-                            self.puzzle_grid.does_mate(locations[i])):
+                            temp_grid.occupied[tuple(locations[i])] == 0 and \
+                            temp_grid.does_mate(locations[i])):
                             processpiece(i)
                             done = False
             else:
@@ -385,8 +387,8 @@ class Solver:
                     for i in range(1, len(self.piece_list)):
                         # Puts pieces in an order where they mate
                         if (scores[i] < 99999 and \
-                            self.puzzle_grid.occupied[tuple(locations[i])] == 0 and \
-                            self.puzzle_grid.does_mate(locations[i])):
+                            temp_grid.occupied[tuple(locations[i])] == 0 and \
+                            temp_grid.does_mate(locations[i])):
                             processpiece(i)
                             done = False
 

@@ -303,12 +303,12 @@ class Detector:
             img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in white_list:
                 # Assume rectangle for now
-                img[shape[0]:shape[2], shape[1]:shape[3]] = self.latestImage[shape[0]:shape[2], shape[1]:shape[3]]
+                img[shape[1]:shape[3], shape[0]:shape[2]] = self.latestImage[shape[1]:shape[3], shape[0]:shape[2]]
         elif black_list:
             img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
             for shape in black_list:
                 # Assume rectangle for now
-                img[shape[0]:shape[2], shape[1]:shape[3]] = self.last_processed_img[shape[0]:shape[2], shape[1]:shape[3]]
+                img[shape[1]:shape[3], shape[0]:shape[2]] = self.last_processed_img[shape[1]:shape[3], shape[0]:shape[2]]
         else:
             img = self.latestImage
 

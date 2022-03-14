@@ -1,6 +1,9 @@
 import cv2
+from matplotlib.pyplot import pie
 import numpy as np
 from itertools import combinations
+
+from piece_outline_detector import PuzzlePiece
 
 # Set the approximate piece side length (in pixels).  This is used to
 # sub-divide the long side of connected pieces.
@@ -9,7 +12,7 @@ SIDELEN = 125
 # Set the number of points per side to match against another side.
 SIDEPOINTS = 20
 
-def calc_rotation(biggest_contour, step = 2, n_thetas = 90):
+def calc_rotation(biggest_contour, step = 5, n_thetas = 90):
     biggest_contour = biggest_contour.reshape(-1, 2)
     derivatives = np.zeros_like(biggest_contour, dtype = np.float32)
     
@@ -49,6 +52,12 @@ def get_piece_mask(img):
 
     return blocks
 
+def ToThomasPuzzlePiece(piece: PuzzlePiece):
+    tp = ThomasPuzzlePiece(0, 0, 0, 0, 0)
+    tp.img = get_piece_mask(piece.natural_img)
+    tp.natural_img = piece.natural_img
+    return tp
+
 class ThomasPuzzlePiece:
     def __init__(self, x, y, w, h, area):
         self.x = x
@@ -64,7 +73,6 @@ class ThomasPuzzlePiece:
 
         self.img = None
         self.natural_img = None
-        self.embedding = np.zeros((512, 4), dtype = np.float32)
 
     def get_location(self):
         return (self.x, self.y)
@@ -130,7 +138,7 @@ class ThomasPuzzlePiece:
         
         return self.box_raw
 
-    def get_largest_contour(self, image = None, threshold = 100, erosion = 5, dilation = 3, filter_iters = 2) :
+    def get_largest_contour(self, image = None, threshold = 100, erosion = 5, dilation = 3, filter_iters = 0) :
         if image is None:
             image = self.img
         # Compute a contour and then use the largest countour to build a bounding box

@@ -171,14 +171,27 @@ class PuzzlePiece:
         candidates = list(np.int0(hull))
         done = False
         while not done:
+            # Remove points which are in a straight line
             done = True
             to_remove = list()
             for i in range(len(candidates)):
                 a = candidates[(i - 1 + len(candidates)) % len(candidates)]
                 b = candidates[i]
                 c = candidates[(i + 1 + len(candidates)) % len(candidates)]
-                if abs(angle(a, b, c) - np.pi) < 0.2:
+                if abs(angle(a, b, c) - np.pi) < 0.1:
                     to_remove.append(i)
+            for i in to_remove[::-1]:
+                candidates.pop(i)
+                done = False
+
+            # Remove points which are close to each other
+            to_remove = list()
+            for i in range(len(candidates)):
+                a = candidates[(i - 1 + len(candidates)) % len(candidates)]
+                b = candidates[i]
+                if np.linalg.norm(b - a) < 5:
+                    to_remove.append(i)
+                    candidates[(i - 1 + len(candidates)) % len(candidates)] = np.int0((a+b)/2)
             for i in to_remove[::-1]:
                 candidates.pop(i)
                 done = False
@@ -300,12 +313,12 @@ class Detector:
         if white_list:
             if black_list:
                 rospy.logwarn("[Detector] Received both white list and black list, using only white list")
-            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
+            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8) + 255
             for shape in white_list:
                 # Assume rectangle for now
                 img[shape[1]:shape[3], shape[0]:shape[2]] = self.latestImage[shape[1]:shape[3], shape[0]:shape[2]]
         elif black_list:
-            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
+            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8) + 255
             for shape in black_list:
                 # Assume rectangle for now
                 img[shape[1]:shape[3], shape[0]:shape[2]] = self.last_processed_img[shape[1]:shape[3], shape[0]:shape[2]]
@@ -438,8 +451,8 @@ class Detector:
         blocks = 255 - binary
 
         # Remove noise
-        blocks = cv2.dilate(blocks, None, iterations=2)
-        blocks = cv2.erode(blocks, None, iterations=2)
+        blocks = cv2.dilate(blocks, None, iterations=5)
+        blocks = cv2.erode(blocks, None, iterations=5)
 
         # Perform 3 iterations of eroding (by distance)
         piece_centers = blocks
@@ -463,7 +476,7 @@ class Detector:
 
             # This component is either noise or part of another piece that broke off
             # Mark its area as "unknown" to be filled by watershed
-            if area < 200:
+            if area < 400:
                 markers[markers == (i+1)] = 0
 
         # Mark unknown regions

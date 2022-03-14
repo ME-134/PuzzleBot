@@ -12,7 +12,7 @@ from sensor_msgs.msg   import Image
 
 import numpy as np
 
-from thomas_detector import ThomasDetector, ThomasPuzzlePiece
+from thomas_detector import ThomasDetector, ThomasPuzzlePiece, ToThomasPuzzlePiece
 from puzzle_grid import PuzzleGrid
 import vision
 
@@ -269,8 +269,8 @@ class Solver:
             # Matches the two biggest pieces
             pieces = sorted(self.detector.pieces, key=lambda x: -x.area)
             print(pieces)
-            self.puzzle_grid.piece = pieces[0]
-            dx, dy, dtheta = pieces[1].find_contour_match(pieces[0])
+            self.puzzle_grid.piece = (pieces[0])
+            dx, dy, dtheta = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]))
             if dx == 0 and dy == 0:
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
@@ -351,15 +351,17 @@ class Solver:
 
             def processpiece(i, first=False):
                 offset = place_offset(locations[i]) if not first else 0
+                offset = 0
                 loc = np.array([720, 350]) + temp_grid.grid_to_pixel(locations[i]) + offset
-
+                piece = self.piece_list[i]
                 # Color selected piece
-                plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
+                color = np.array(piece.color).astype(np.uint8)
+                # plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
                 dummy_piece = piece.copy()
                 dummy_piece.rotate(rots[i]*np.pi/2)
                 dummy_piece.move_to(loc[0], loc[1])
-                plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
-                plan_img[dummy_piece.mask.astype(bool)] += piece.color.astype(np.uint8)
+                plan_img[piece.bounds_slice()] += color
+                plan_img[dummy_piece.mask.astype(bool)] += color
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})

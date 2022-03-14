@@ -372,7 +372,7 @@ class ThomasPuzzlePiece:
     #   Check the Translation/Orientation/Match between 2 Sides
     #
     def compareSides(self, sideA, sideB):
-        center = self.get_location()
+        center = np.array(self.img.shape)/2
         # Grab the points from the two sides, relative to the center.
         M  = SIDEPOINTS
         iA = [int(round(j*(len(sideA)-1)/(M-1))) for j in range(M)]
@@ -417,13 +417,16 @@ class ThomasPuzzlePiece:
         # Finds the transform from this piece to other_piece based on contour
         sidesA = other_piece.get_sides()
         sidesB = self.get_sides()
+        best_err = np.inf
+        ans = (0, 0, 0)
+        A_offset = np.array(other_piece.get_location()) + np.array(other_piece.img.shape)/2 - np.array(self.get_location()) - np.array(self.img.shape)/2
         for iA in range(len(sidesA)):
             for iB in range(len(sidesB)):
-                (dx, dy, dtheta, err) = self.compareSides(sidesA[iA], sidesB[iB])
-                if err < match_threshold:
-                    return dx, dy, dtheta
+                (dx, dy, dtheta, err) = self.compareSides(sidesA[iA] + A_offset, sidesB[iB])
+                if err < match_threshold and best_err > err:
+                    ans = (dx, dy, dtheta)
         
-        return 0, 0, 0
+        return ans
         
 
 

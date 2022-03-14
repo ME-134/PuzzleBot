@@ -83,7 +83,8 @@ class Solver:
     def __init__(self, detector):
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
-        self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored4.jpg')
+        self.pub_contour_matching = rospy.Publisher("/solver/matching",  Image, queue_size=1)
+        self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored7.jpg')
 
         # Stack
         self.tasks = TaskStack()
@@ -267,8 +268,12 @@ class Solver:
 
         elif curr_task == SolverTask.MatePiece:
             # Matches the two biggest pieces
+            # Makes first piece the main puzzle
+            self.tasks.pop()
             pieces = sorted(self.detector.pieces, key=lambda x: -x.area)
-            print(pieces)
+            loc1, loc2 = np.array(pieces[0].get_location()), np.array(pieces[1].get_location())
+            if abs(np.dot(loc1 - loc2, [-1, -1])) < .3:
+                pieces[0], pieces[1] = pieces[1], pieces[0]
             self.puzzle_grid.piece = (pieces[0])
             dx, dy, dtheta = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]), match_threshold=7)
             if dx == 0 and dy == 0:
@@ -280,6 +285,13 @@ class Solver:
                 self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
+            plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 255
+            dummy_piece = pieces[1].copy()
+            dummy_piece.rotate(dtheta)
+            dummy_piece.move_to(np.array(dummy_piece.get_location()[0]) + dx, np.array(dummy_piece.get_location()[1]) + dy)
+            plan_img[pieces[0].mask.astype(bool)] += np.array(pieces[0].color).astype(np.uint8)
+            plan_img[dummy_piece.mask.astype(bool)] += np.array(pieces[1].color).astype(np.uint8)
+            self.pub_contour_matching.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
 
         # HIGH-LEVEL TASKS
         elif curr_task == SolverTask.SeparatePieces:
@@ -352,7 +364,7 @@ class Solver:
             def processpiece(i, first=False):
                 offset = place_offset(locations[i]) if not first else 0
                 # offset = 0
-                loc = np.array([720, 350]) + temp_grid.grid_to_pixel(locations[i])
+                loc = np.array([720, 380]) + temp_grid.grid_to_pixel(locations[i])
                 piece = self.piece_list[i]
                 # Color selected piece
                 color = np.array(piece.color).astype(np.uint8)

@@ -230,7 +230,7 @@ class Detector:
 
         bluedots_img, binary_img, free_space_img = self.process(img)
         self.pub_bluedots.publish(self.bridge.cv2_to_imgmsg(bluedots_img, "bgr8"))
-        self.pub_binary.publish(self.bridge.cv2_to_imgmsg(binary_img))
+        self.pub_binary.publish(self.bridge.cv2_to_imgmsg(free_space_img))
         self.free_space_img = free_space_img
 
     def crop_raw(self, img):
@@ -340,6 +340,7 @@ class Detector:
         self.map_data_pub.publish(grid_msg.info)
         self.map_pub.publish(grid_msg)
 
+
     def process(self, img):
         self.last_processed_img = img.copy()
         img_orig = img.copy()
@@ -395,7 +396,7 @@ class Detector:
 
         # Outline pieces in original image as blue
         img[markers == 255] = (255, 0, 0)
-
+        
         #return img, markers
 
         pieces = list()
@@ -447,6 +448,8 @@ class Detector:
         self.pieces = pieces
 
         table = 255 - blocks
+        table[markers == 255] = 255
+
         return img, markers, table
 
 #

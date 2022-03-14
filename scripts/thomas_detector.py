@@ -174,8 +174,11 @@ class ThomasPuzzlePiece:
         top_line_vector = top_line_vector / np.linalg.norm(top_line_vector)
         return np.arccos(top_line_vector.dot(np.array([1, 0])))
 
-    def get_rotation_to_align(self, erosion = 5, dilation = 3, filter_iters = 2, **kwargs):
-        biggest_contour = self.get_largest_contour(threshold = 100, erosion = 5, dilation = 3, filter_iters = 2)
+    def get_rotation_to_align(self, erosion = 1, dilation = 1, filter_iters = 0, **kwargs):
+        # import matplotlib.pyplot as plt
+        # plt.imshow(self.natural_img)
+        # plt.show()
+        biggest_contour = self.get_largest_contour(threshold = 100, erosion = erosion, dilation = dilation, filter_iters = filter_iters)
         return calc_rotation(biggest_contour)
     
     def get_warped(self, maxWidth = 300, maxHeight = 300):
@@ -497,13 +500,14 @@ class ThomasDetector:
                             existing_piece.matched = True
                             piece = existing_piece
                             break
+                spacing = 20
                 pieces.append(piece)
-                cutout_img = blocks[max(ymin-10,0):ymin+height+10, max(xmin-10,0):xmin+width+10].copy()
+                cutout_img = blocks[max(ymin-spacing,0):ymin+height+spacing, max(xmin-spacing,0):xmin+width+spacing].copy()
                 piece.set_img(cutout_img)
 
                 y_max, x_max = blocks.shape[:2]
-                cutout_img = img[max(ymin-10,0):min(ymin+height+10, y_max),
-                                    max(xmin-10,0):min(xmin+width+10, x_max)].copy()
+                cutout_img = img[max(ymin-spacing,0):min(ymin+height+spacing, y_max),
+                                    max(xmin-spacing,0):min(xmin+width+spacing, x_max)].copy()
                 piece.set_natural_img(cutout_img)
 
         for piece in pieces:

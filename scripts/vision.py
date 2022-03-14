@@ -223,7 +223,7 @@ def run_rotation_model_big(base_img, rotation_image):
     print("[VISION] : ", probs, np.argmax(probs))
     return probs
 
-def run_model(img, image_size = 124):
+def run_model(img, image_size = 224):
     # import matplotlib.pyplot as plt
     # plt.imshow(img)
     # plt.show()
@@ -234,11 +234,12 @@ def run_model(img, image_size = 124):
     ref_pred = model(ref)
     return ref_pred.cpu().detach().numpy()
 
-def run_model_masked(img, image_size = 124):
+def run_model_masked(img, image_size = 224):
     img = cv2.resize(img, (image_size, image_size))
     mask = get_piece_mask(img).reshape((image_size, image_size, 1)) > 128
     img = img * mask
-    img = (img - img.mean()) / img.std()
+    mean, std = img.mean(), img.std()
+    img = (img - mean) / std
     # img = ((img / 255.0) - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
     ref = torch.from_numpy(img[:image_size, :image_size, :].reshape(1, image_size, image_size, 3)).float().permute(0, 3, 1, 2).to(device)
     ref_pred = model(ref)

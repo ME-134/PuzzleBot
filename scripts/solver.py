@@ -37,11 +37,11 @@ class TaskStack:
     def __init__(self):
         self.tasks = list()
         self.taskdata = list()
-    def push(self, task, taskdata=None):
-        if taskdata is None:
-            taskdata = dict()
+    def push(self, task, task_data=None):
+        if task_data is None:
+            task_data = dict()
         self.tasks.append(task)
-        self.taskdata.append(taskdata)
+        self.taskdata.append(task_data)
     def append(self, *args, **kwargs):
         return self.push(*args, **kwargs)
     def pop(self):
@@ -54,6 +54,16 @@ class TaskStack:
         return len(self.tasks)
     def __bool__(self):
         return len(self.tasks) > 0
+    def __repr__(self):
+        s = "Task Stack: \n"
+        s += "[Top]\n"
+        for i, (task, taskdata) in enumerate(reversed(list(zip(self.tasks, self.taskdata)))):
+            s += f"{i+1}. " + str(task)
+            if taskdata:
+                s += " | Task Data: " + str(taskdata)
+            s += "\n"
+        s += "[Bottom]"
+        return s
 
 class Status(enum.Enum):
     Ok = 0
@@ -108,6 +118,7 @@ class Solver:
         Args: status, which is either OK or some sort of error.
         Return: None
         '''
+        print("notify action complete: ", self.tasks)
         if not self.tasks:
             rospy.logwarn("[Solver] Action completed recieved but there are no current tasks!")
             return
@@ -182,6 +193,7 @@ class Solver:
             raise RuntimeError(f"Unknown task: {curr_task}")
 
     def apply_next_action(self, controller):
+        print("apply next action: ", self.tasks)
 
         if not self.tasks:
             rospy.loginfo("[Solver] No current tasks, sending Idle command.")
@@ -235,7 +247,7 @@ class Solver:
             return
 
         elif curr_task == SolverTask.MoveArm:
-            controller.move_to_pixelcoords(task_data['dest'], turn=task_data['turn'])
+            controller.move_to_pixelcoords(task_data['dest'], task_data.get('turn', 0))
             return
 
         elif curr_task == SolverTask.LiftPiece:
@@ -286,8 +298,10 @@ class Solver:
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_origin})
 
+            # Continue onto the next action
+            return self.apply_next_action(controller)
+
             # controller.move_piece(piece_origin, piece_destination, turn=rotation_offset, jiggle=False)
-            return
 
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.

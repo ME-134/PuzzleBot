@@ -7,9 +7,6 @@
 #
 #   Publish:   /joint_states   sensor_msgs/JointState
 #
-from logging.config import stopListening
-from msilib.sequence import _SequenceType
-from site import setquit
 import rospy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -42,10 +39,12 @@ class GotoSpline(SafeCubicSpline):
         v0 = vf = 0*p0
         if 'v0' in kwargs:
             v0 = kwargs['v0']
+            del kwargs['v0']
         if 'vf' in kwargs:
             vf = kwargs['vf']
-        min_time = 1
-        speed = 1 # rad per sec
+            del kwargs['vf']
+        min_time = 0.25
+        speed = 0.75 # rad per sec
         max_diff = np.max(np.abs(p0 - pf))
         time = max_diff / speed + min_time
         assert time >= min_time
@@ -87,7 +86,7 @@ class FuncSegment:
             self.func()
             self.called = True
 
-def SplineSequence(self):
+class SplineSequence:
     def __init__(self, origin, space='Joint'):
         self.splines = list()
         self.space = space
@@ -219,7 +218,7 @@ class Controller:
         self.index = 0
         self.state = State.splining
 
-    def reset(self, duration = 4):
+    def reset(self):
         # Assumes that the initial theta is valid.
         # Will not attempt to reset a theta which is out of bounds.
 
@@ -232,7 +231,7 @@ class Controller:
         Bounds.assert_theta_valid(self.lasttheta)
         Bounds.assert_thetadot_valid(self.lastthetadot)
 
-        spline = SafeCubicSpline(self.lasttheta, -self.lastthetadot, goal_theta, 0, duration, rm=True)
+        spline = GotoSpline(self.lasttheta, goal_theta, v0=self.lastthetadot, rm=True)
         self.change_segments([spline])
 
     def perturb(self, piece, space='Joint'):
@@ -294,9 +293,11 @@ class Controller:
         return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
     def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint'):
-        curr_pos = self.get_current_position()
+        curr_pos = np.float32([0, 0, 0, self.lasttheta[3], 0]).reshape((5, 1))
+        curr_pos[:3] = self.get_current_position()
         pickup_pos = curr_pos.copy()
         pickup_pos[2, 0] = -0.014
+        print(pickup_pos)
         if space == 'Joint':
             up = self.lasttheta
             down = self.ikin(pickup_pos, self.lasttheta, step_size=.3)
@@ -306,7 +307,7 @@ class Controller:
         seq = SplineSequence(up, space=space)
         if jiggle:
             seq.append_goto(down)
-            seq.append(FuncSegment(lambda: self.set_pump(False)))
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value)))
 
             # Jiggle needs to be done in 'Task' space
             seq.change_space(pickup_pos, 'Task')
@@ -319,7 +320,7 @@ class Controller:
             seq.append_goto(up)
         else:
             seq.append_goto(down)
-            seq.append(FuncSegment(lambda: self.set_pump(False)))
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value)))
             seq.append_gotos([down, up])
 
         self.change_segments(seq.as_list())
@@ -424,6 +425,7 @@ class Controller:
     def set_pump(self, value):
         # Turns on/off pump
         msg = UInt16()
+        rospy.loginfo(f"Setting pump to {value}")
         self.pump_value = 1 if value else 0
         msg.data = self.pump_value
         self.pump_pub.publish(msg)

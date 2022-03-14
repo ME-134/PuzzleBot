@@ -313,12 +313,12 @@ class Detector:
         if white_list:
             if black_list:
                 rospy.logwarn("[Detector] Received both white list and black list, using only white list")
-            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
+            img = self.last_processed_img if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8) + 255
             for shape in white_list:
                 # Assume rectangle for now
                 img[shape[1]:shape[3], shape[0]:shape[2]] = self.latestImage[shape[1]:shape[3], shape[0]:shape[2]]
         elif black_list:
-            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8)
+            img = self.latestImage if merge else np.zeros_like(self.last_processed_img, dtype=np.uint8) + 255
             for shape in black_list:
                 # Assume rectangle for now
                 img[shape[1]:shape[3], shape[0]:shape[2]] = self.last_processed_img[shape[1]:shape[3], shape[0]:shape[2]]

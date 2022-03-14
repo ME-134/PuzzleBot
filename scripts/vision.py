@@ -223,7 +223,7 @@ def run_rotation_model_big(base_img, rotation_image):
     print("[VISION] : ", probs, np.argmax(probs))
     return probs
 
-def run_model(img, image_size = 224):
+def run_model(img, image_size = 124):
     # import matplotlib.pyplot as plt
     # plt.imshow(img)
     # plt.show()
@@ -234,7 +234,7 @@ def run_model(img, image_size = 224):
     ref_pred = model(ref)
     return ref_pred.cpu().detach().numpy()
 
-def run_model_masked(img, image_size = 224):
+def run_model_masked(img, image_size = 124):
     img = cv2.resize(img, (image_size, image_size))
     mask = get_piece_mask(img).reshape((image_size, image_size, 1)) > 128
     img = img * mask
@@ -404,8 +404,9 @@ class VisionMatcher():
                 argmin_pca = np.array(sims_rot)
                 probs = run_rotation_model_big(base, img)
 
-                print( "[NORMS] : ", norm(argmin_basic), norm(argmin_iou), norm(argmin_pca), norm(probs))
                 rots[i] = np.argmin(norm(argmin_basic) + norm(argmin_iou) + norm(argmin_pca) - 4 * norm(probs))
+                print( "[NORMS] : ", rots[i], np.argmax(probs))
+
             return locations, rots, match_scores  # locations[i] gives grid location of piece i
         else:
             raise Exception("Not Implemented")

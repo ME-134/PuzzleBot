@@ -318,17 +318,17 @@ class Solver:
             done = False
             hackystack = TaskStack() # temporary hacky solution
             
-            def processpiece(i):
+            def processpiece(i, jiggle=True):
                 loc = np.array([720, 350]) + self.puzzle_grid.grid_to_pixel(locations[i])
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
                 hackystack.push(SolverTask.LiftPiece)
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]*np.pi/2})
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': jiggle})
                 # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                 self.puzzle_grid.occupied[tuple(locations[i])] = 1
-            processpiece(0)
+            processpiece(0, jiggle=False)
 
             while not done:
                 done = True
@@ -457,6 +457,7 @@ class Solver:
 
         # Add existing piece to free space
         free_space[piece.mask.astype(bool)] = 255
+        free_space = cv2.dilate(free_space, None, iterations=1)
 
         # Scan the whole area until we find a suitable free spot for our piece
         start_x, start_y = 100, 100
@@ -489,7 +490,7 @@ class Solver:
                     plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
 
                     # Mark out spaces that aren't free in red
-                    plan_img[free_space.astype(bool) == False] += np.array([0, 0, 40], dtype=np.uint8)
+                    plan_img[free_space.astype(bool) == False] = np.array([0, 0, 200], dtype=np.uint8)
 
                     # Color selected piece in blue
                     plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)

@@ -299,17 +299,22 @@ class Controller:
     def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint'):
         curr_pos = np.float32([0, 0, 0, -self.lasttheta[4, 0]+self.lasttheta[0,0], 0]).reshape((5, 1))
         curr_pos[:3] = self.get_current_position()
+        med_pos = curr_pos.copy()
+        med_pos[2, 0] = 0.01
         pickup_pos = curr_pos.copy()
         pickup_pos[2, 0] = -0.005
         if space == 'Joint':
             up = self.lasttheta
-            down = self.ikin(pickup_pos, self.lasttheta, step_size=.3)
+            med = self.ikin(med_pos, up)
+            down = self.ikin(pickup_pos, med)
         elif space == 'Task':
             up = curr_pos
+            med = med_pos
             down = pickup_pos
         seq = SplineSequence(up, space=space)
         if jiggle:
-            seq.append_goto(down)
+            seq.append_goto(med, minduration=1)
+            seq.append_goto(down, minduration=1)
             seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=1))
 
             # Jiggle needs to be done in 'Task' space
@@ -320,10 +325,13 @@ class Controller:
             seq.append_goto(pickup_pos)
             seq.change_space(down, space)
 
+            seq.append_goto(med, minduration=1)
             seq.append_goto(up, minduration=1)
         else:
-            seq.append_goto(down)
+            seq.append_goto(med, minduration=1)
+            seq.append_goto(down, minduration=1)
             seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=1))
+            seq.append_goto(med, minduration=1)
             seq.append_goto(up, minduration=1)
 
         self.change_segments(seq.as_list())

@@ -615,3 +615,67 @@ class Solver:
         # Backup
         n = self.pieces_cleared
         return self.separated_loc + [self.separated_spacing*(n%5), self.separated_spacing*(n//5)]
+
+    def mask_match(self, pieces):
+        ref = cv2.imread('done_exploded_colored4.jpg')
+        detector = Detector()
+        detector.process(ref)
+        sol_pieces = detector.pieces.copy()
+
+        matching = np.zeros((len(pieces), len(sol_pieces)))
+        rotations = np.zeros((len(pieces), len(sol_pieces)))
+
+        def normalized(piece):
+            piece = piece.copy()
+            rot = -piece.get_aligning_rotation()
+            piece.move_to(200, 200)
+            piece.mask = piece.mask[:400, :400]
+            piece.rotate(rot)
+            piece.mask = piece.mask / np.linalg.norm(piece.mask)
+            return piece, rot
+
+        pieces_normalized = list()
+        for i, piece in enumerate(pieces):
+            normalized_piece, rot = normalized(piece)
+            rotations[i, :] += rot
+            pieces_normalized.append(normalized_piece)
+
+        for j, sol_piece in enumerate(sol_pieces):
+            sol_piece, rot = normalized(sol_piece)
+            rotations[:, j] += -rot
+            print(f"Progress: {j}/{len(sol_pieces)}")
+            for i, piece in enumerate(pieces_normalized):
+                piece = piece.copy()
+                matching[i, j] = 0
+                best_rot = 0
+                for dtheta in range(4):
+                    piece.mask = piece.mask / np.linalg.norm(piece.mask)
+                    dot = np.sum(sol_piece.mask * piece.mask)
+
+                    if dot > matching[i, j]:
+                        matching[i, j] = dot
+                        best_rot = (dtheta * np.pi / 2)
+                    piece.rotate(np.pi/2)
+                rotations[i, j] += best_rot
+
+        from scipy.optimize import linear_sum_assignment
+        row_ind, col_ind = linear_sum_assignment(-matching)
+
+        fake_grid = np.zeros((1080, 1920))
+        positions = np.zeros((len(pieces), 2))
+
+        for i, j in zip(row_ind, col_ind):
+            piece = pieces[i]
+            sol_piece = sol_pieces[j]
+            positions[i] = np.array([sol_piece.x_center, sol_piece.y_center])
+            fake_piece = piece.copy()
+            fake_piece.move_to(positions[i, 0], positions[i, 1])
+            fake_piece.rotate(rotations[i, j])
+
+            fake_grid += fake_piece.mask
+        #cv2.imshow('grid', fake_grid)
+        #cv2.waitKey(0)
+        #cv2.destroyAllWindows()
+
+        return positions, rotations
+

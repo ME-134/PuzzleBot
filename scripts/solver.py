@@ -13,6 +13,7 @@ from sensor_msgs.msg   import Image
 import numpy as np
 
 from thomas_detector import ThomasDetector, ThomasPuzzlePiece, ToThomasPuzzlePiece
+from piece_outline_detector import Detector as IlyaDetector
 from puzzle_grid import PuzzleGrid
 import vision
 
@@ -349,6 +350,7 @@ class Solver:
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
+            '''
             radial = True
 
             locations, rots, scores = self.vision.match_all(self.piece_list)
@@ -429,7 +431,66 @@ class Solver:
                 self.tasks.push(task, task_data=task_data)
 
             self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
+            '''
 
+            locations, rots = self.mask_match(self.piece_list)
+            hackystack = TaskStack() # temporary hacky solution
+            temp_grid = PuzzleGrid()
+
+            plan_img = self.detector.latestImage.copy()
+
+            # Mark out puzzle territory in green
+            plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 40, 0], dtype=np.uint8)
+
+            def processpiece(i, first=False):
+                loc = np.array([720, 380]) + temp_grid.grid_to_pixel(locations[i])
+                piece = self.piece_list[i]
+                # Color selected piece
+                color = np.array(piece.color).astype(np.uint8)
+                # plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
+                dummy_piece = piece.copy()
+                dummy_piece.rotate(rots[i])
+                dummy_piece.move_to(loc[0], loc[1])
+                plan_img[piece.bounds_slice()] += color
+                plan_img[dummy_piece.mask.astype(bool)] += color
+
+                # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
+                hackystack.push(SolverTask.LiftPiece)
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]})
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                # if not first:
+                #     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
+                #     hackystack.push(SolverTask.MatePiece)
+
+                # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
+                temp_grid.occupied[tuple(locations[i])] = 1
+                
+            # Find top right
+            target_loc = [0, 0]
+            for i in range(len(self.piece_list)):
+                if np.array_equal(locations[i], target_loc):
+                    break
+            processpiece(i, first=True)
+            loc_list = list()
+            for i in range(len(self.piece_list)):
+                loc_list.append([i, locations[i]])
+            list.sort(loc_list, key=lambda x: np.linalg.norm(x[1]-target_loc))
+            done = False
+            while not done:
+                done = True
+                for i in range(len(self.piece_list)):
+                    # Puts pieces in an order where they mate
+                    if (temp_grid.occupied[tuple(locations[i])] == 0 and \
+                        temp_grid.does_mate(locations[i])):
+                        processpiece(i)
+                        done = False
+
+            while len(hackystack) > 0:
+                task, task_data = hackystack.pop()
+                self.tasks.push(task, task_data=task_data)
+
+            self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
 
             # target_piece = self.reference_pieces[self.pieces_solved]
             # for piece in self.piece_list:
@@ -618,7 +679,7 @@ class Solver:
 
     def mask_match(self, pieces):
         ref = cv2.imread('done_exploded_colored4.jpg')
-        detector = Detector()
+        detector = IlyaDetector()
         detector.process(ref)
         sol_pieces = detector.pieces.copy()
 
@@ -661,21 +722,40 @@ class Solver:
         from scipy.optimize import linear_sum_assignment
         row_ind, col_ind = linear_sum_assignment(-matching)
 
-        fake_grid = np.zeros((1080, 1920))
+        fake_grid = np.zeros((1080, 1720))
         positions = np.zeros((len(pieces), 2))
+        rots = np.zeros(len(pieces))
 
         for i, j in zip(row_ind, col_ind):
             piece = pieces[i]
             sol_piece = sol_pieces[j]
+            print(f"[Solver]: Piece {i} similarity: {matching[i, j]}")
             positions[i] = np.array([sol_piece.x_center, sol_piece.y_center])
             fake_piece = piece.copy()
             fake_piece.move_to(positions[i, 0], positions[i, 1])
             fake_piece.rotate(rotations[i, j])
+            rots[i] = rotations[i, j]
 
             fake_grid += fake_piece.mask
-        #cv2.imshow('grid', fake_grid)
+        
+        print(f"[Solver]: Average similarity: {matching[row_ind, col_ind].sum()/len(pieces)}") 
+        cv2.imwrite('solverplan.png', fake_grid)
         #cv2.waitKey(0)
         #cv2.destroyAllWindows()
 
-        return positions, rotations
+        # grid_locs = np.zeros((5, 4))
+        grid_locs = np.zeros((20, 2)).astype(int)
+        locs = sorted(list(positions), key = lambda pos: pos[0] + pos[1] * 9)
+        count = 0
+        for j in range(4):
+            for i in range(5):
+                for index in range(20):
+                    if np.array_equal(positions[index], locs[count]):
+                        grid_locs[index] = [i, j]
+                        count += 1
+                        break
+                else:
+                    raise RuntimeError("Shouldn't be reached!")
+
+        return grid_locs, rots
 

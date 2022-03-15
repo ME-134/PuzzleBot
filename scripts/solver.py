@@ -260,11 +260,11 @@ class Solver:
             return
 
         elif curr_task == SolverTask.LiftPiece:
-            controller.lift_piece()
+            controller.lift_piece(careful=task_data.get('careful', True))
             return
 
         elif curr_task == SolverTask.PlacePiece:
-            controller.place_piece(jiggle=task_data['jiggle'])
+            controller.place_piece(jiggle=task_data['jiggle'], careful=task_data.get('careful', True))
             return
 
         elif curr_task == SolverTask.MatePiece:
@@ -314,9 +314,14 @@ class Solver:
             # the completed puzzle. At the same time, we are rotating all the pieces
             # to their correct orientation.
 
+            move_to_puzzle_region = False
+
             for piece in sorted(self.piece_list, key=lambda piece: piece.xmin):
                 if not piece.is_valid():
                     continue
+                if piece.on_border_of_region(self.get_screen_region()):
+                    continue # deal with it later
+
                 # rotation_offset = self.get_rotation_offset(piece.img)
                 rotation_offset = piece.get_aligning_rotation()
                 ### TEMP
@@ -336,22 +341,30 @@ class Solver:
                 if piece.overlaps_with_region(self.get_puzzle_region()):
                     break
             else:
-                # All pieces have been cleared from the puzzle region
-                rospy.loginfo("[Solver] No pieces left to separate, continuing to next solver task.")
+                # Once all pieces are not in the puzzle region, check whether any pieces are on the
+                # border of the screen, as that is bad for the solver.
+                for piece in self.piece_list:
+                    if piece.on_border_of_region(self.get_screen_region()):
+                        move_to_puzzle_region = True
+                        break
+                else:
+                    # All pieces have been cleared from the puzzle region
+                    rospy.loginfo("[Solver] No pieces left to separate, continuing to next solver task.")
 
-                # TODO: in the future, we might want to not pop, so that
-                # we can recover from errors.
-                self.tasks.pop()
-                return self.apply_next_action(controller)
+                    # TODO: in the future, we might want to not pop, so that
+                    # we can recover from errors.
+                    self.tasks.pop()
+                    return self.apply_next_action(controller)
 
-            piece_origin = piece.get_center()
-            piece_destination = self.find_available_piece_spot(piece, rotation_offset)
+            piece_origin = piece.get_pickup_point()
+            piece_destination = self.find_available_piece_spot(piece, rotation_offset, move_to_puzzle_region)
+            piece_destination = piece.correct_point_by_pickup_offset(piece_destination)
 
             # Add in reverse
             self.tasks.push(SolverTask.GetView)
-            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'careful': False})
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': rotation_offset})
-            self.tasks.push(SolverTask.LiftPiece)
+            self.tasks.push(SolverTask.LiftPiece, task_data={'careful': False})
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_origin})
 
             # Continue onto the next action
@@ -462,6 +475,7 @@ class Solver:
                 # offset = 0
                 loc = np.array([720, 380]) + temp_grid.grid_to_pixel(locations[i])
                 piece = self.piece_list[i]
+                loc = np.array(piece.correct_point_by_pickup_offset(loc))
                 # Color selected piece
                 color = np.array(piece.color).astype(np.uint8)
                 # plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
@@ -472,7 +486,7 @@ class Solver:
                 plan_img[dummy_piece.mask.astype(bool)] += color
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_pickup_point()})
                 hackystack.push(SolverTask.LiftPiece)
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': loc + offset, 'turn': rots[i]})
                 hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
@@ -590,7 +604,7 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (600, 350, 1680, 980)
+        return (650, 350, 1680, 980)
 
     def get_puzzle_keepouts(self):
         '''
@@ -614,7 +628,7 @@ class Solver:
         ymin = np.min(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
         return np.hstack((xmin, ymin, xmax, ymax)).astype(int)
 
-    def find_available_piece_spot(self, piece, rotation):
+    def find_available_piece_spot(self, piece, rotation, move_to_puzzle_region=False):
         '''
         Return a location on the border of the playground which has enough free space
         to put a piece there.
@@ -632,36 +646,43 @@ class Solver:
         free_space = cv2.dilate(free_space, None, iterations=1)
 
         # Scan the whole area until we find a suitable free spot for our piece
-        start_x, start_y = 100, 100
+        start_x, start_y = 50, 50
         for x in range(start_x, 1780-100, 10):
             for y in range(start_y, 1080-100, 10):
                 dummy_piece.move_to_no_mask(x, y)
 
                 # Publish our plans
                 # plan_img = self.detector.latestImage.copy()
-                #plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
+                # plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
                 # plan_img[piece.bounds_slice()] += np.array([40, 0, 0], dtype=np.uint8)
                 # plan_img[dummy_piece.bounds_slice()] += np.array([0, 20, 20], dtype=np.uint8)
                 # self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
 
-                if not dummy_piece.fully_contained_in_region(self.get_screen_region()):
+                if not dummy_piece.fully_contained_in_region(self.get_screen_region(), buffer=20):
                     continue
 
                 # Piece cannot go to the area we designate for the solved puzzle
-                if dummy_piece.overlaps_with_region(self.get_puzzle_region()):
+                if dummy_piece.overlaps_with_region(self.get_puzzle_region()) and not move_to_puzzle_region:
                     break # assume puzzle region is in the bottom-right
+
+                # This is set when the piece is close to the border
+                # Move it to the puzzle region where it will be fully seen
+                # (it will later be moved away)
+                if move_to_puzzle_region:
+                    if not dummy_piece.fully_contained_in_region(self.get_puzzle_region(), buffer=50):
+                        continue
 
                 # Piece cannot go to the aruco areas
                 flag = False
                 for region in self.get_aruco_regions():
-                    if dummy_piece.overlaps_with_region(region):
+                    if dummy_piece.overlaps_with_region(region, buffer=20):
                         flag = True
                         break 
                 if flag:
-                    break
+                    continue
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice(padding=15)]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=20)]):
                     dummy_piece = dummy_piece_copy.copy()
                     dummy_piece.move_to(x, y)
 

@@ -295,7 +295,7 @@ class Controller:
         freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
         return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
-    def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint'):
+    def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint', mindur=1):
         curr_pos = np.float32([0, 0, 0, -self.lasttheta[4, 0]+self.lasttheta[0,0], 0]).reshape((5, 1))
         curr_pos[:3] = self.get_current_position()
         med_pos = curr_pos.copy()
@@ -312,9 +312,9 @@ class Controller:
             down = pickup_pos
         seq = SplineSequence(up, space=space)
         if jiggle:
-            seq.append_goto(med, minduration=1)
-            seq.append_goto(down, minduration=1)
-            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=1))
+            seq.append_goto(med, minduration=mindur)
+            seq.append_goto(down, minduration=mindur)
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
 
             # Jiggle needs to be done in 'Task' space
             seq.change_space(pickup_pos, 'Task')
@@ -324,22 +324,24 @@ class Controller:
             seq.append_goto(pickup_pos)
             seq.change_space(down, space)
 
-            seq.append_goto(med, minduration=1)
-            seq.append_goto(up, minduration=1)
+            seq.append_goto(med, minduration=mindur)
+            seq.append_goto(up, minduration=mindur)
         else:
-            seq.append_goto(med, minduration=1)
-            seq.append_goto(down, minduration=1)
-            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=1))
-            seq.append_goto(med, minduration=1)
-            seq.append_goto(up, minduration=1)
+            seq.append_goto(med, minduration=mindur)
+            seq.append_goto(down, minduration=mindur)
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
+            seq.append_goto(med, minduration=mindur)
+            seq.append_goto(up, minduration=mindur)
 
         self.change_segments(seq.as_list())
 
-    def place_piece(self, jiggle=False, space='Joint'):
-        self._piece_down_up(False, jiggle=jiggle, space=space)
+    def place_piece(self, jiggle=False, space='Joint', careful=True):
+        mindur = 1 if careful else 0.5
+        self._piece_down_up(False, jiggle=jiggle, space=space, mindur=mindur)
 
-    def lift_piece(self, space='Joint'):
-        self._piece_down_up(True, jiggle=False, space=space)
+    def lift_piece(self, space='Joint', careful=True):
+        mindur = 1 if careful else 0
+        self._piece_down_up(True, jiggle=False, space=space, mindur=mindur)
 
     # DEPRECATED
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.014):

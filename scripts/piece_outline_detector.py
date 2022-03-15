@@ -133,24 +133,31 @@ class PuzzlePiece:
             return True
         return False
 
-    def fully_contained_in_region(self, region):
+    def on_border_of_region(self, region):
         xmin, ymin, xmax, ymax = region
-        return (xmin < self.xmin < xmax) and \
-               (xmin < self.xmax < xmax) and \
-               (ymin < self.ymin < ymax) and \
-               (ymin < self.ymax < ymax)
+        return (self.xmin-1 <= xmin <= self.xmax+1) or \
+               (self.xmin-1 <= xmax <= self.xmax+1) or \
+               (self.ymin-1 <= ymin <= self.ymax+1) or \
+               (self.ymin-1 <= ymax <= self.ymax+1)
 
-    def overlaps_with_region(self, region):
+    def fully_contained_in_region(self, region, buffer=0):
+        xmin, ymin, xmax, ymax = region
+        return (xmin + buffer < self.xmin < xmax - buffer) and \
+               (xmin + buffer < self.xmax < xmax - buffer) and \
+               (ymin + buffer < self.ymin < ymax - buffer) and \
+               (ymin + buffer < self.ymax < ymax - buffer)
+
+    def overlaps_with_region(self, region, buffer=0):
         xmin, ymin, xmax, ymax = region
         for (x, y) in [(xmin, ymin), (xmin, ymax), (xmax, ymin), (xmax, ymax)]:
-            if (self.xmin < x < self.xmin + self.width) and \
-               (self.xmin < y < self.xmin + self.height):
+            if (self.xmin - buffer < x < self.xmin + self.width + buffer) and \
+               (self.ymin - buffer < y < self.ymin + self.height + buffer):
                 return True
         for (x, y) in [(self.xmin, self.ymin),
                        (self.xmin, self.ymin+self.height),
                        (self.xmin+self.width, self.ymin),
                        (self.xmin+self.width, self.ymin+self.height)]:
-            if (xmin < x < xmax) and (ymin < y < ymax):
+            if (xmin - buffer < x < xmax + buffer) and (ymin - buffer < y < ymax + buffer):
                 return True
         return False
 
@@ -228,6 +235,7 @@ class PuzzlePiece:
             ideal_height = 115
             ideal_width = 135
             ideal_angle = np.pi/2
+            ideal_ratio = ideal_width / ideal_height
                         
             score1 = abs(dist(p1,p2)+dist(p3,p4)-2*ideal_width) / 100
             score1 += abs(dist(p2,p3)+dist(p1,p4)-2*ideal_height) / 100
@@ -244,6 +252,11 @@ class PuzzlePiece:
             score += abs(angle(p2, p3, p4) - ideal_angle)
             score += abs(angle(p3, p4, p1) - ideal_angle)
             score += abs(angle(p4, p1, p2) - ideal_angle)
+
+            ratio = (dist(p1, p2) + dist(p3, p4)) / (dist(p4, p1) + dist(p3, p2))
+            if ratio < 1:
+                ratio = 1/ratio
+            score += abs(ratio - ideal_ratio) * 10
             
             if score < best_score:
                 best_score = score
@@ -339,6 +352,22 @@ class PuzzlePiece:
         angle2 = angle(p3, p4, p4 + np.array([1, 0]))
         rot = np.mean([angle1, angle2])
         return -rot
+
+    def get_pickup_point(self):
+        eroded = cv2.erode(self.mask, None, iterations=10)
+        ys, xs = np.where(eroded)
+        x = np.mean(xs).astype(int)
+        y = np.mean(ys).astype(int)
+        cv2.circle(eroded, (x, y), 5, 255)
+        cv2.imwrite('eroded.png', eroded)
+        return (x, y)
+
+    def correct_point_by_pickup_offset(self, point):
+        # shift a point by (pickup - center)
+        px, py = self.get_pickup_point()
+        dx = px - self.x_center
+        dy = py - self.y_center
+        return (point[0]+dx, point[1]+dy)
 
     def _refineCornerIndex(self, contour, index):
         #
@@ -543,6 +572,7 @@ class Detector:
         # Grab an instance of the camera data.
         rospy.loginfo("Waiting for camera info...")
         msg = rospy.wait_for_message('/usb_cam/camera_info', CameraInfo)
+        rospy.loginfo("Recieved camera info.") 
         self.camD = np.array(msg.D).reshape(5)
         self.camK = np.array(msg.K).reshape((3,3))
         self.transform = None
@@ -783,6 +813,17 @@ class Detector:
         unknown = cv2.subtract(blocks, piece_centers)
         markers[unknown == 255] = 0
 
+        # Color out aruco markers
+        if self.aruco_corners_pixel is not None:
+            axmax = np.max(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
+            aymax = np.max(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+            axmin = np.min(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
+            aymin = np.min(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+            aruco_locs = np.hstack((axmin, aymin, axmax, aymax)).astype(int)
+            for aruco_loc in aruco_locs:
+                xmin, ymin, xmax, ymax = tuple(aruco_loc)
+                blocks[ymin:ymax, xmin:xmax] = 0
+
         # Convert image to RGB because watershed only works on RGB
         blobs = cv2.cvtColor(blocks, cv2.COLOR_GRAY2RGB)
 
@@ -810,6 +851,8 @@ class Detector:
                 continue
 
             piece_mask = (markers == i+1)
+            piece_mask = cv2.dilate(piece_mask.astype(np.float32), None, 5)
+            piece_mask = cv2.erode(piece_mask, None, 5).astype(bool)
             piece = PuzzlePiece(piece_mask)
             if piece.is_valid():
                 # First try to match the piece

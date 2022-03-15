@@ -672,6 +672,8 @@ class Detector:
         i = list(ids).index(index)
         return all_corners[i*4:i*4+4].mean(axis=0)
 
+    def death_region(self):
+        return (600, 850, 1150, 1080)
 
     def init_aruco(self):
         image_msg = rospy.wait_for_message("/usb_cam/image_raw", Image)
@@ -779,6 +781,21 @@ class Detector:
         # Part of the image which is the puzzle pieces
         blocks = 255 - binary
 
+        # Color out aruco markers
+        if self.aruco_corners_pixel is not None:
+            axmax = np.max(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
+            aymax = np.max(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+            axmin = np.min(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
+            aymin = np.min(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+            aruco_locs = np.hstack((axmin, aymin, axmax, aymax)).astype(int)
+            for aruco_loc in aruco_locs:
+                xmin, ymin, xmax, ymax = tuple(aruco_loc)
+                blocks[ymin:ymax, xmin:xmax] = 0
+
+        # Color out death region
+        xmin, ymin, xmax, ymax = self.death_region()
+        blocks[ymin:ymax, xmin:xmax] = 0
+
         # Remove noise
         blocks = cv2.dilate(blocks, None, iterations=5)
         blocks = cv2.erode(blocks, None, iterations=5)
@@ -812,17 +829,6 @@ class Detector:
         # This is where it's part of a block but we're not sure which one it's part of.
         unknown = cv2.subtract(blocks, piece_centers)
         markers[unknown == 255] = 0
-
-        # Color out aruco markers
-        if self.aruco_corners_pixel is not None:
-            axmax = np.max(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
-            aymax = np.max(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
-            axmin = np.min(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
-            aymin = np.min(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
-            aruco_locs = np.hstack((axmin, aymin, axmax, aymax)).astype(int)
-            for aruco_loc in aruco_locs:
-                xmin, ymin, xmax, ymax = tuple(aruco_loc)
-                blocks[ymin:ymax, xmin:xmax] = 0
 
         # Convert image to RGB because watershed only works on RGB
         blobs = cv2.cvtColor(blocks, cv2.COLOR_GRAY2RGB)

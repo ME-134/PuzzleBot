@@ -346,6 +346,7 @@ class Solver:
                 for piece in self.piece_list:
                     if piece.on_border_of_region(self.get_screen_region()):
                         move_to_puzzle_region = True
+                        rotation_offset = 0
                         break
                 else:
                     # All pieces have been cleared from the puzzle region
@@ -598,6 +599,12 @@ class Solver:
         # TODO
         return True
 
+    def get_region_of_instant_and_inescapable_death(self):
+        return self.detector.death_region()
+    def get_slice_of_instant_and_inescapable_death(self):
+        xmin, ymin, xmax, ymax = self.get_region_of_instant_and_inescapable_death()
+        return (slice(ymin, ymax), slice(xmin, xmax))
+
     def get_puzzle_region(self):
         '''
         Return (xmin, ymin, xmax, ymax) in pixel space
@@ -665,6 +672,9 @@ class Solver:
                 if dummy_piece.overlaps_with_region(self.get_puzzle_region()) and not move_to_puzzle_region:
                     break # assume puzzle region is in the bottom-right
 
+                if dummy_piece.overlaps_with_region(self.get_region_of_instant_and_inescapable_death()):
+                    break # assume region is at the bottom
+
                 # This is set when the piece is close to the border
                 # Move it to the puzzle region where it will be fully seen
                 # (it will later be moved away)
@@ -690,6 +700,9 @@ class Solver:
 
                     # Mark out puzzle territory in red
                     plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 0, 40], dtype=np.uint8)
+                    
+                    # Mark out death region in red
+                    plan_img[self.get_slice_of_instant_and_inescapable_death()] = np.array([0, 0, 40], dtype=np.uint8)
 
                     # Mark out aruco territory in red
                     pad = 10
@@ -720,6 +733,8 @@ class Solver:
         detector = IlyaDetector()
         detector.process(ref)
         sol_pieces = detector.pieces.copy()
+
+        assert len(pieces) == len(sol_pieces)
 
         matching = np.zeros((len(pieces), len(sol_pieces)))
         rotations = np.zeros((len(pieces), len(sol_pieces)))
@@ -787,13 +802,14 @@ class Solver:
         count = 0
         for j in range(4):
             for i in range(5):
-                for index in range(20):
+                for index in range(len(pieces)):
                     if np.array_equal(positions[index], locs[count]):
                         grid_locs[index] = [i, j]
                         count += 1
                         break
                 else:
-                    raise RuntimeError("Shouldn't be reached!")
+                    raise RuntimeError("Shouldn't be reached! Could be an incorrect number of pieces"
+                    + f"Expects 20, found {len(pieces)}")
 
         return grid_locs, rots
 

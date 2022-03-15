@@ -284,7 +284,7 @@ class Solver:
 
             self.puzzle_grid.piece = (pieces[0])
             
-            dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=7, return_sides=True)
+            dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=8, return_sides=True)
             if dx == 0 and dy == 0:
                 # FIXME
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
@@ -493,7 +493,7 @@ class Solver:
                 dummy_piece = piece.copy()
                 dummy_piece.rotate(rots[i])
                 dummy_piece.move_to(loc[0], loc[1])
-                plan_img = cv2.circle(plan_img, (piece.x_center, piece.y_center), 15, piece.get_color(), -1)
+                cv2.circle(plan_img, (piece.x_center, piece.y_center), 15, piece.get_color(), -1)
                 plan_img[dummy_piece.mask.astype(bool)] = color
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse

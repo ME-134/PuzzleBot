@@ -283,6 +283,7 @@ class Solver:
                 return loc1 + delta * 20
 
             self.puzzle_grid.piece = (pieces[0])
+            
             dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=7, return_sides=True)
             if dx == 0 and dy == 0:
                 # FIXME

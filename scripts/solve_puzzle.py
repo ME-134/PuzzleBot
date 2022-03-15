@@ -314,7 +314,7 @@ class Controller:
         if jiggle:
             seq.append_goto(med, minduration=mindur)
             seq.append_goto(down, minduration=mindur)
-            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
+            # seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
 
             # Jiggle needs to be done in 'Task' space
             seq.change_space(pickup_pos, 'Task')
@@ -322,6 +322,7 @@ class Controller:
             seq.append_goto(jiggle_spline.evaluate(0)[0])
             seq.append(jiggle_spline)
             seq.append_goto(pickup_pos)
+            seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
             seq.change_space(down, space)
 
             seq.append_goto(med, minduration=mindur)

@@ -281,6 +281,7 @@ class Solver:
             if np.arccos(np.dot(delta, [-1/np.sqrt(2), -1/np.sqrt(2)])) > 1.4:
                 pieces[0], pieces[1] = pieces[1], pieces[0]
             self.puzzle_grid.piece = (pieces[0])
+            
             dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=7, return_sides=True)
             if dx == 0 and dy == 0:
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)

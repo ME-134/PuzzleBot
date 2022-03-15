@@ -493,8 +493,8 @@ class Solver:
                 dummy_piece = piece.copy()
                 dummy_piece.rotate(rots[i])
                 dummy_piece.move_to(loc[0], loc[1])
-                plan_img[piece.bounds_slice()] += color
-                plan_img[dummy_piece.mask.astype(bool)] += color
+                plan_img = cv2.circle(plan_img, (piece.x_center, piece.y_center), 15, piece.get_color(), -1)
+                plan_img[dummy_piece.mask.astype(bool)] = color
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_pickup_point()})

@@ -296,7 +296,7 @@ def compareSides(sideA, sideB, center):
 #
 if __name__ == "__main__":
     # Grab the image.
-    image = cv2.imread("pieces1.jpg", flags=cv2.IMREAD_COLOR)
+    image = cv2.imread("../contour_test1.jpg", flags=cv2.IMREAD_COLOR)
 
     # Select counters (larger first).
     (contourA, contourB) = selectContours(image)

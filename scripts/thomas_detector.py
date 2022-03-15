@@ -413,18 +413,18 @@ class ThomasPuzzlePiece:
         # Return the data.
         return (dx, dy, dtheta, err)
 
-    def find_contour_match(self, other_piece, match_threshold=5):
+    def find_contour_match(self, other_piece, match_threshold=5, return_sides=False):
         # Finds the transform from this piece to other_piece based on contour
         sidesA = other_piece.get_sides()
         sidesB = self.get_sides()
         best_err = np.inf
-        ans = (0, 0, 0)
+        ans = (0, 0, 0, [], []) if return_sides else (0, 0, 0)
         A_offset = np.array(other_piece.get_location()) + np.array(other_piece.img.shape)/2 - np.array(self.get_location()) - np.array(self.img.shape)/2
         for iA in range(len(sidesA)):
             for iB in range(len(sidesB)):
                 (dx, dy, dtheta, err) = self.compareSides(sidesA[iA] + A_offset, sidesB[iB])
                 if err < match_threshold and best_err > err:
-                    ans = (dx, dy, dtheta)
+                    ans = (-dx, dy, dtheta, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta)
         
         return ans
         

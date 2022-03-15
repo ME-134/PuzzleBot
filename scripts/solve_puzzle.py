@@ -288,7 +288,7 @@ class Controller:
         pos_offset = .004
         rot_offset = .1
         duration = 5
-        jiggle_height = 0.01
+        jiggle_height = 0.011
         pgoal1 = center + np.array([-pos_offset, -pos_offset, jiggle_height, -rot_offset, 0]).reshape((5, 1))
         pgoal2 = center + np.array([pos_offset, pos_offset, jiggle_height, rot_offset, 0]).reshape((5, 1))
         phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
@@ -622,7 +622,7 @@ class Controller:
 
             #rospy.loginfo("Screen coordinates of arm: ", self.detector.world_to_screen(p[0, 0], p[1, 0]))
 
-            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=1, warning=False)
+            theta, J = self.ikin(p, self.lasttheta, return_J=True, max_iter=5, warning=False)
             thetadot  = np.linalg.pinv(J[:, :]) @ v
 
         elif (self.segments[self.index].space() == 'Func'):

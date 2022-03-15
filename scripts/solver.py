@@ -270,19 +270,22 @@ class Solver:
         elif curr_task == SolverTask.MatePiece:
             # Matches the two biggest pieces
             # Makes first piece the main puzzle
-            def find_weight_dest():
-                return pieces[0].get_location()
             self.tasks.pop()
-            pieces = sorted(self.detector.pieces, key=lambda x: -x.area)
+            pieces = sorted(self.detector.pieces, key=lambda x: x.xmin + x.ymin)
             # Uses assumption that puzzle is starting from top left to figure out which piece is which
             loc1, loc2 = np.array(pieces[0].get_location()), np.array(pieces[1].get_location())
             delta = loc1 - loc2
             delta = delta / np.linalg.norm(delta)
-            if np.arccos(np.dot(delta, [-1/np.sqrt(2), -1/np.sqrt(2)])) > 1.4:
-                pieces[0], pieces[1] = pieces[1], pieces[0]
+            # if np.arccos(np.dot(delta, [-1/np.sqrt(2), -1/np.sqrt(2)])) > 1.4:
+                # pieces[0], pieces[1] = pieces[1], pieces[0]
+
+            def find_weight_dest():
+                return loc1 + delta * 20
+
             self.puzzle_grid.piece = (pieces[0])
             dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=7, return_sides=True)
             if dx == 0 and dy == 0:
+                # FIXME
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
                 self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
@@ -292,11 +295,17 @@ class Solver:
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
             if dx != 0 or dy != 0:
-                # Move the weight to the main puzzle
-                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
-                self.tasks.push(SolverTask.MoveArm, task_data={'dest': find_weight_dest(), 'height': .10})
-                self.tasks.push(SolverTask.LiftPiece)
-                self.tasks.push(SolverTask.MoveArm, task_data={'dest': self.detector.find_aruco(4), 'height': .10})
+                weight_origin = self.detector.find_aruco(4)
+                weight_dest = find_weight_dest()
+                weight_distance = np.linalg.norm(weight_dest - weight_origin)
+                rospy.loginfo(f"Weight is {weight_distance} away")
+                # Don't bother moving the weight if it is close enough
+                if weight_distance > 50:
+                    # Move the weight to the main puzzle
+                    self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                    self.tasks.push(SolverTask.MoveArm, task_data={'dest': weight_dest, 'height': .10})
+                    self.tasks.push(SolverTask.LiftPiece)
+                    self.tasks.push(SolverTask.MoveArm, task_data={'dest': self.detector.find_aruco(4), 'height': .10})
             plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 255
             
             plan_img[side0] = [255, 255, 0]
@@ -611,7 +620,7 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (650, 350, 1680, 980)
+        return (650, 350, 1680, 850)
 
     def get_puzzle_keepouts(self):
         '''
@@ -622,7 +631,7 @@ class Solver:
         return 0
 
     def get_screen_region(self):
-        return (0, 0, 1780, 1080)
+        return (0, 0, 1720, 1080)
 
     def get_puzzle_region_as_slice(self):
         xmin, ymin, xmax, ymax = self.get_puzzle_region()
@@ -654,7 +663,7 @@ class Solver:
 
         # Scan the whole area until we find a suitable free spot for our piece
         start_x, start_y = 50, 50
-        for x in range(start_x, 1780-100, 10):
+        for x in range(start_x, 1720-100, 10):
             for y in range(start_y, 1080-100, 10):
                 dummy_piece.move_to_no_mask(x, y)
 

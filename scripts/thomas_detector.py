@@ -10,6 +10,14 @@ SIDELEN = 125
 # Set the number of points per side to match against another side.
 SIDEPOINTS = 20
 
+def drawSide(image, side, color):
+    for x,y in side.reshape(-1,2):
+        image[y,x] = color
+
+def drawSides(image, sides, color):
+    for i in range(len(sides)):
+        drawSide(image, sides[i], color)
+
 def calc_rotation(biggest_contour, step = 5, n_thetas = 90):
     biggest_contour = biggest_contour.reshape(-1, 2)
     derivatives = np.zeros_like(biggest_contour, dtype = np.float32)
@@ -57,12 +65,13 @@ def ToThomasPuzzlePiece(piece):
     return tp
 
 class ThomasPuzzlePiece:
-    def __init__(self, x, y, w, h, area):
+    def __init__(self, x, y, w, h, area, pixel_region=None):
         self.x = x
         self.y = y
         self.width  = w
         self.height = h
         self.area   = area
+        self.pixel_region = pixel_region
 
         self.color = tuple(map(int, np.random.random(size=3) * 255))
 
@@ -362,7 +371,7 @@ class ThomasPuzzlePiece:
         # Check the number of pieces (just for fun).
         A = cv2.contourArea(polygon, oriented=False)
         n = np.round(A/SIDELEN/SIDELEN)
-        print("Guessing contour has %d pieces" % n)
+        self.num_pieces = n
 
         # Return the sides
         return sides
@@ -413,28 +422,62 @@ class ThomasPuzzlePiece:
         # Return the data.
         return (dx, dy, dtheta, err)
 
-    def find_contour_match(self, other_piece, match_threshold=5, return_sides=False):
-        # Finds the transform from this piece to other_piece based on contour
+    def get_transform_to_piece(self, piece):
+        # Get transform from one piece to another's coordinates
+        #(np.array(piece.get_location()) - np.array(piece.img.shape)[[1, 0]]/2) - (np.array(self.get_location()) - np.array(self.img.shape)[[1, 0]]/2)
+        return np.array([piece.pixel_region[0] - self.pixel_region[0], piece.pixel_region[1] - self.pixel_region[1]])
 
-        def is_line(side, threshold=100):
-            a = np.hstack(side[:, 0].reshape((-1, 1)), 1)
-            b = side[:, 1]
-            x, resid, _, _ = np.linalg.lstsq(a, b)
-            return resid.sum() < threshold
+    def find_contour_match(self, other_piece, match_threshold=4, return_sides=False):
+        # Finds the transform from this piece to other_piece based on contour
+        import matplotlib.pyplot as plt
+        def is_line(side, threshold=0.005):
+            a = side
+            b = np.ones((a.shape[0], 1))
+            x, resid, _, _ = np.linalg.lstsq(a, b, rcond=None)
+            return resid[0]/len(b) < threshold
 
         sidesA = other_piece.get_sides()
         sidesB = self.get_sides()
         best_err = np.inf
         ans = (0, 0, 0, [], []) if return_sides else (0, 0, 0)
-        A_offset = np.array(other_piece.get_location()) + np.array(other_piece.img.shape)/2 - np.array(self.get_location()) - np.array(self.img.shape)/2
+        A_offset = self.get_transform_to_piece(other_piece)
+        print(A_offset)
+            
+        # for iA in range(len(sidesA)):
+        #     plt.title(is_line(sidesA[iA]))
+        #     sidea = other_piece.natural_img.copy()
+        #     drawSide(sidea, sidesA[iA], (255, 0, 0))
+        #     plt.imshow(sidea)
+        #     plt.show()
+            
+        # for iB in range(len(sidesB)):
+        #     plt.title(is_line(sidesB[iB]))
+        #     sideb = self.natural_img.copy()
+        #     drawSide(sideb, sidesB[iB], (255, 0, 0))
+        #     plt.imshow(sideb)
+        #     plt.show()
+        
+        candidates = []
         for iA in range(len(sidesA)):
             if not is_line(sidesA[iA]):
                 for iB in range(len(sidesB)):
                     if not is_line(sidesB[iB]):
                         (dx, dy, dtheta, err) = self.compareSides(sidesA[iA] + A_offset, sidesB[iB])
+                        # fig, axs = plt.subplots(1, 2)
+                        # sidea = other_piece.natural_img.copy()
+                        # sideb = self.natural_img.copy()
+                        # drawSide(sidea, sidesA[iA], (255, 0, 0))
+                        # drawSide(sideb, sidesB[iB], (255, 0, 0))
+                        # plt.title(f"{round(dx)}, {round(dy)}, {round(dtheta)}, {err}")
+                        # axs[0].imshow(sidea)
+                        # axs[1].imshow(sideb)
+                        # plt.show()
                         if err < match_threshold and best_err > err:
+                            candidates.append((dx, dy, dtheta, err))
+                            best_err = err
                             ans = (-dx, dy, dtheta, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta)
-        
+        list.sort(candidates, key=lambda x: x[0]**2 + x[1]**2 + (50*x[2])**2 + (50*x[3])**2)
+        print(candidates.pop(0))
         return ans
         
 
@@ -508,7 +551,7 @@ class ThomasDetector:
             
             xmin, ymin, width, height, area = tuple(stat)
             centroid = tuple(np.array(centroids[i]).astype(np.int32))
-            piece = ThomasPuzzlePiece(centroid[0], centroid[1], width, height, area)
+            piece = ThomasPuzzlePiece(centroid[0], centroid[1], width, height, area, pixel_region=[xmin, ymin, xmin+width, ymin+height])
             #if piece.is_valid():
             if True:
                 # First try to match the piece

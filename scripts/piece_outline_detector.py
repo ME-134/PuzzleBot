@@ -24,6 +24,13 @@ from sensor_msgs.msg   import Image, CameraInfo
 from nav_msgs.msg      import OccupancyGrid, MapMetaData
 from geometry_msgs.msg import Pose, Point, Quaternion
 
+# Set the approximate piece side length (in pixels).  This is used to
+# sub-divide the long side of connected pieces.
+SIDELEN = 125
+
+# Set the number of points per side to match against another side.
+SIDEPOINTS = 20
+
 class PuzzlePiece:
     # def __init__(self, bbox, centroid):
     #     self.x_center, self.y_center = centroid
@@ -241,6 +248,198 @@ class PuzzlePiece:
         angle2 = angle(p3, p4, p4 + np.array([1, 0]))
         rot = np.mean([angle1, angle2])
         return -rot
+
+    def _refineCornerIndex(self, contour, index):
+        #
+        #   Corner Indicies
+        #
+        #   Create a list of puzzle piece corners.  This also works on
+        #   connected pieces, effectively sub-dividing long sides.
+        #
+        # Set up the parameters.
+        N = len(contour)
+        D = int(SIDELEN/6)          # Search a range +/- from the given
+        d = int(SIDELEN/8)          # Compute the angle +/- this many pixels
+        
+        # Search for the best corner fit, checking +/- the given index.
+        maxvalue = 0
+        for i in range(index-D,index+D+1):
+            p  = contour[(i  )%N, 0, :]
+            da = contour[(i-d)%N, 0, :] - p
+            db = contour[(i+d)%N, 0, :] - p
+            value = (da[0]*db[1] - da[1]*db[0])**2
+            if value > maxvalue:
+                maxvalue = value
+                index    = i%N
+
+        # Return the best index.
+        return(index)
+
+    def _findCornerIndices(self, contour, polygon):
+        # Prepare the list of corner indices.
+        indices = []
+
+        # Loop of the polygon points, sub-dividing long lines (across
+        # multiple pieces) into single pieces.
+        N = len(polygon)
+        for i in range(N):
+            p1 = polygon[ i,      :]
+            p2 = polygon[(i+1)%N, :]
+
+            # Sub-divide as appropriate.
+            n  = int(round(np.linalg.norm(p2-p1) / SIDELEN))
+            for j in range(n):
+                p = p1*(n-j)/n + p2*j/n
+
+                # Find the lowest distance to all contour points.
+                d = np.linalg.norm(contour-p, axis=2)
+                index = int(np.argmin(d, axis=0))
+
+                # Refine the corner index for real corners.
+                if (j == 0):
+                    index = self._refineCornerIndex(contour, index)
+
+                # Use that index.
+                indices.append(index)
+
+        # Return the indices.
+        return(indices)
+
+    
+    def get_sides(self, contour=None):
+        #
+        #   Find Sides
+        #
+        #   Process a contour (list of pixels on the boundary) into the sides.
+        #
+        if contour is None:
+            contour = self.get_largest_contour(threshold = 100, erosion = 0, dilation = 0, filter_iters = 0)
+        # Create the base polygon.
+        polygon = self.find_corners()
+
+        # Get the indices to the corners.
+        indices = self._findCornerIndices(contour, polygon)
+
+        # Pull out the sides between the indicies.
+        sides = []
+        N = len(indices)
+        for i in range(N):
+            index1 = indices[i]
+            index2 = indices[(i+1)%N]
+            if (index1 <= index2):
+                side = contour[index1:index2, 0, :]
+            else:
+                side = np.vstack((contour[index1:, 0, :],
+                                contour[0:index2, 0, :]))
+            sides.append(side)
+
+
+        # Check the number of pieces (just for fun).
+        A = cv2.contourArea(polygon, oriented=False)
+        n = np.round(A/SIDELEN/SIDELEN)
+        self.num_pieces = n
+
+        # Return the sides
+        return sides
+
+
+
+    def compareSides(self, sideA, sideB):
+        #
+        #   Check the Translation/Orientation/Match between 2 Sides
+        #
+        center = np.array(self.img.shape)/2
+        # Grab the points from the two sides, relative to the center.
+        M  = SIDEPOINTS
+        iA = [int(round(j*(len(sideA)-1)/(M-1))) for j in range(M)]
+        iB = [int(round(j*(len(sideB)-1)/(M-1))) for j in range(M-1,-1,-1)]
+        pA = sideA[iA] - center
+        pB = sideB[iB] - center
+
+        # Pull out a list of the x/y coordinqtes.
+        xA = pA[:,0].reshape((-1, 1))
+        yA = pA[:,1].reshape((-1, 1))
+        xB = pB[:,0].reshape((-1, 1))
+        yB = pB[:,1].reshape((-1, 1))
+        c0 = np.zeros((M,1))
+        c1 = np.ones((M,1))
+
+        # Build up the least squares problem for 4 parameters: dx, dy, cos, sin
+        b  = np.hstack(( xA, yA)).reshape((-1,1))
+        A1 = np.hstack(( c1, c0)).reshape((-1,1))
+        A2 = np.hstack(( c0, c1)).reshape((-1,1))
+        A3 = np.hstack((-yB, xB)).reshape((-1,1))
+        A4 = np.hstack(( xB, yB)).reshape((-1,1))
+        A  = np.hstack((A1, A2, A3, A4))
+
+        param = np.linalg.pinv(A.transpose() @ A) @ (A.transpose() @ b)
+        dtheta = np.arctan2(param[2][0], param[3][0])
+
+        # Rebuild the least squares problem for 2 parameters: dx, dy
+        b = b - A @ np.array([0, 0, np.sin(dtheta), np.cos(dtheta)]).reshape(-1,1)
+        A = A[:, 0:2]
+
+        param = np.linalg.pinv(A.transpose() @ A) @ (A.transpose() @ b)
+        dx = param[0][0]
+        dy = param[1][0]
+
+        # Check the residual error.
+        err = np.linalg.norm(b - A @ param) / np.sqrt(M)
+
+        # Return the data.
+        return (dx, dy, dtheta, err)
+
+    def get_tranform_to_piece(self, piece):
+        return (np.array(piece.get_location()) - np.array(piece.img.shape)[[1, 0]]/2) - (np.array(self.get_location()) - np.array(self.img.shape)[[1, 0]]/2)
+
+    def find_contour_match(self, other_piece, match_threshold=5, return_sides=False):
+        # Finds the transform from this piece to other_piece based on contour
+        import matplotlib.pyplot as plt
+        def is_line(side, threshold=0.001):
+            # Returns boolean if a side is a line/edge
+            a = side
+            b = np.ones((a.shape[0], 1))
+            x, resid, _, _ = np.linalg.lstsq(a, b, rcond=None)
+            return resid[0]/len(b) < threshold
+
+        sidesA = other_piece.get_sides()
+        sidesB = self.get_sides()
+        best_err = np.inf
+        ans = (0, 0, 0, [], []) if return_sides else (0, 0, 0)
+        A_offset = self.get_tranform_to_piece(other_piece)
+            
+        # for iA in range(len(sidesA)):
+        #     plt.title(is_line(sidesA[iA]))
+        #     sidea = other_piece.natural_img.copy()
+        #     drawSide(sidea, sidesA[iA], (255, 0, 0))
+        #     plt.imshow(sidea)
+        #     plt.show()
+            
+        # for iB in range(len(sidesB)):
+        #     plt.title(is_line(sidesB[iB]))
+        #     sideb = self.natural_img.copy()
+        #     drawSide(sideb, sidesB[iB], (255, 0, 0))
+        #     plt.imshow(sideb)
+        #     plt.show()
+                
+        for iA in range(len(sidesA)):
+            if not is_line(sidesA[iA]):
+                for iB in range(len(sidesB)):
+                    if not is_line(sidesB[iB]):
+                        (dx, dy, dtheta, err) = self.compareSides(sidesA[iA] + A_offset, sidesB[iB])
+                        # fig, axs = plt.subplots(1, 2)
+                        # sidea = other_piece.natural_img.copy()
+                        # sideb = self.natural_img.copy()
+                        # drawSide(sidea, sidesA[iA], (255, 0, 0))
+                        # drawSide(sideb, sidesB[iB], (255, 0, 0))
+                        # plt.title(f"{round(dx)}, {round(dy)}, {round(dtheta)}, {err}")
+                        # axs[0].imshow(sidea)
+                        # axs[1].imshow(sideb)
+                        # plt.show()
+                        if err < match_threshold and best_err > err:
+                            ans = (-dx, dy, dtheta, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta)
+        
+        return ans
 
 #
 #  Detector Node Class

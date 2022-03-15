@@ -427,7 +427,7 @@ class ThomasPuzzlePiece:
         #(np.array(piece.get_location()) - np.array(piece.img.shape)[[1, 0]]/2) - (np.array(self.get_location()) - np.array(self.img.shape)[[1, 0]]/2)
         return np.array([piece.pixel_region[0] - self.pixel_region[0], piece.pixel_region[1] - self.pixel_region[1]])
 
-    def find_contour_match(self, other_piece, match_threshold=4, return_sides=False):
+    def find_contour_match(self, other_piece, match_threshold=np.inf, return_sides=False):
         # Finds the transform from this piece to other_piece based on contour
         import matplotlib.pyplot as plt
         def is_line(side, threshold=0.005):

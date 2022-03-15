@@ -117,11 +117,11 @@ class PuzzlePiece:
         return (self.x_center - other.x_center) ** 2 + (self.y_center - other.y_center) ** 2 < 10**2
 
     def is_valid(self):
-        if not (2000 < self.area):
+        if not (8000 < self.area or 25000 > self.area):
             return False
-        if not (70 < self.width):
+        if not (70 < self.width or 200 > self.width):
             return False
-        if not (70 < self.height):
+        if not (70 < self.height or 200 > self.height):
             return False
         return True
 
@@ -153,6 +153,20 @@ class PuzzlePiece:
             if (xmin < x < xmax) and (ymin < y < ymax):
                 return True
         return False
+
+    def get_largest_contour(self, image = None, erosion = 0, dilation = 0, filter_iters = 0) :
+        if image is None:
+            image = self.thomas_mask
+        # Compute a contour and then use the largest countour to build a bounding box
+        filtered = image
+        for i in range(filter_iters):
+            filtered = cv2.dilate(filtered, np.ones((dilation, dilation), np.uint8))
+            filtered = cv2.erode(filtered, np.ones((erosion, erosion), np.uint8))
+        
+        # Old contour based box:
+        contours, hierarchy = cv2.findContours(filtered, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        biggest_contour = max(contours, key = cv2.contourArea)
+        return biggest_contour
 
     def find_corners(self):
         mask = self.mask.copy()
@@ -237,6 +251,83 @@ class PuzzlePiece:
                 best_four = four
         return best_four
 
+    def _get_corners(self, ortho_threshold=.05):
+        '''Finds the corners of the underlying polygon of the shape'''
+        # Create a blank image, to allow the erosion and dilation without
+        # interferring with other image elements.
+        binary = np.zeros(np.array(self.thomas_mask.shape)*3, dtype=np.uint8)
+        binary[self.thomas_mask.shape[0]:2*self.thomas_mask.shape[0], self.thomas_mask.shape[1]: 2*self.thomas_mask.shape[1]] = self.thomas_mask
+
+        # kernel = np.array([[0, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [0, 1, 1, 1, 0]], dtype=np.uint8)
+        kernel = None
+        # Dilate and erode to remove the holes.
+        N = int(SIDELEN/8)
+        binary = cv2.dilate(binary, kernel, iterations=N)
+        binary = cv2.erode(binary,  kernel, iterations=N)
+
+        # Erode and dilate to remove the tabs.
+        N = int(SIDELEN/6)
+        binary = cv2.erode(binary,  kernel, iterations=N)
+        binary = cv2.dilate(binary, kernel, iterations=N)
+
+        binary = binary[self.thomas_mask.shape[0]:2*self.thomas_mask.shape[0], self.thomas_mask.shape[1]: 2*self.thomas_mask.shape[1]]
+        
+        # Re-find the countour of the base shape.  Again, do not
+        # approximate, so we get the full list of pixels on the boundary.
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
+                                    cv2.CHAIN_APPROX_NONE)
+        if len(contours) == 0:
+            return np.empty((0,1,2))
+        base = contours[0]
+
+        # Convert the base shape into a simple polygon.
+        polygon = cv2.approxPolyDP(base, SIDELEN/5, closed=True)[:, 0, :]
+        area = cv2.contourArea(polygon, oriented=False)
+        n_pieces = np.round(area/SIDELEN/SIDELEN)
+
+        def order_corners(corners):
+            # Orders corners from top right clockwise
+            mid = np.mean(corners, axis=0)
+            new_corners = np.zeros((4, 2))
+            for corner in corners - mid:
+                if corner[0] >= 0 :
+                    if corner[1] >= 0:
+                        new_corners[0] = corner + mid
+                    else:
+                        new_corners[1] = corner + mid
+                else:
+                    if corner[1] >= 0:
+                        new_corners[3] = corner + mid
+                    else:
+                        new_corners[2] = corner + mid
+            return new_corners
+
+        if len(polygon) > 4 and n_pieces == 1:
+            # Not a rectangle!
+            for corners in combinations(polygon, 4):
+                ordered_corners = order_corners(corners)
+                for i in range(len(ordered_corners)):
+                    leg1 = ordered_corners[i-1]-ordered_corners[i]
+                    leg1 = leg1/np.linalg.norm(leg1)
+                    leg2 = ordered_corners[(i+1)%len(ordered_corners)]-ordered_corners[i]
+                    leg2 = leg2/np.linalg.norm(leg2)
+                    if abs(np.dot(leg1, leg2)) >= ortho_threshold:
+                        break
+                else:
+                    polygon = corners
+                    break
+            else:
+                # Couldn't find a good solution
+                pass
+        elif len(polygon) == 4:
+            polygon = order_corners(polygon)
+        else:
+            # too few corners
+            pass
+
+        return np.array(polygon).astype(int)
+
+
     def get_aligning_rotation(self):
         def angle(a, b, c):
             v1 = a - b
@@ -313,9 +404,9 @@ class PuzzlePiece:
         #   Process a contour (list of pixels on the boundary) into the sides.
         #
         if contour is None:
-            contour = self.get_largest_contour(threshold = 100, erosion = 0, dilation = 0, filter_iters = 0)
+            contour = self.get_largest_contour(erosion = 0, dilation = 0, filter_iters = 0)
         # Create the base polygon.
-        polygon = self.find_corners()
+        polygon = np.array(self._get_corners())
 
         # Get the indices to the corners.
         indices = self._findCornerIndices(contour, polygon)
@@ -348,7 +439,7 @@ class PuzzlePiece:
         #
         #   Check the Translation/Orientation/Match between 2 Sides
         #
-        center = np.array(self.img.shape)/2
+        center = np.array(self.thomas_mask.shape)/2
         # Grab the points from the two sides, relative to the center.
         M  = SIDEPOINTS
         iA = [int(round(j*(len(sideA)-1)/(M-1))) for j in range(M)]
@@ -389,14 +480,17 @@ class PuzzlePiece:
         # Return the data.
         return (dx, dy, dtheta, err)
 
-    def get_tranform_to_piece(self, piece):
-        return (np.array(piece.get_location()) - np.array(piece.img.shape)[[1, 0]]/2) - (np.array(self.get_location()) - np.array(self.img.shape)[[1, 0]]/2)
+    def get_transform_to_piece(self, piece):
+        # Get transform from one piece to another's coordinates
+        #(np.array(piece.get_location()) - np.array(piece.img.shape)[[1, 0]]/2) - (np.array(self.get_location()) - np.array(self.img.shape)[[1, 0]]/2)
+        return np.array([piece.xmin - self.xmin, piece.ymin - self.ymin])
 
-    def find_contour_match(self, other_piece, match_threshold=5, return_sides=False):
+    def find_contour_match(self, other_piece, match_threshold=8, return_sides=False):
         # Finds the transform from this piece to other_piece based on contour
         import matplotlib.pyplot as plt
-        def is_line(side, threshold=0.001):
-            # Returns boolean if a side is a line/edge
+        def is_line(side, threshold=0.005):
+            if len(side) <= 2:
+                return True
             a = side
             b = np.ones((a.shape[0], 1))
             x, resid, _, _ = np.linalg.lstsq(a, b, rcond=None)
@@ -404,9 +498,8 @@ class PuzzlePiece:
 
         sidesA = other_piece.get_sides()
         sidesB = self.get_sides()
-        best_err = np.inf
-        ans = (0, 0, 0, [], []) if return_sides else (0, 0, 0)
-        A_offset = self.get_tranform_to_piece(other_piece)
+        ans = (0, 0, 0, np.inf, [], []) if return_sides else (0, 0, 0)
+        A_offset = self.get_transform_to_piece(other_piece)
             
         # for iA in range(len(sidesA)):
         #     plt.title(is_line(sidesA[iA]))
@@ -421,7 +514,8 @@ class PuzzlePiece:
         #     drawSide(sideb, sidesB[iB], (255, 0, 0))
         #     plt.imshow(sideb)
         #     plt.show()
-                
+        
+        candidates = [ans]
         for iA in range(len(sidesA)):
             if not is_line(sidesA[iA]):
                 for iB in range(len(sidesB)):
@@ -436,10 +530,10 @@ class PuzzlePiece:
                         # axs[0].imshow(sidea)
                         # axs[1].imshow(sideb)
                         # plt.show()
-                        if err < match_threshold and best_err > err:
-                            ans = (-dx, dy, dtheta, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta)
-        
-        return ans
+                        if err < match_threshold:
+                            candidates.append((dx, dy, dtheta, err, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta))
+        list.sort(candidates, key=lambda x: x[0]**2 + x[1]**2 + (50*x[2])**2 + (40*x[3])**2)
+        return [candidates[0][i] for i in ((0, 1, 2, 4, 5) if return_sides else (0, 1, 2))]
 
 #
 #  Detector Node Class
@@ -545,7 +639,7 @@ class Detector:
         (all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
         all_corners = np.array(all_corners).reshape((-1,2))
         ids = ids.flatten()
-        i = ids.index(index)
+        i = list(ids).index(index)
         return all_corners[i*4:i*4+4].mean(axis=0)
 
 
@@ -562,7 +656,7 @@ class Detector:
         #all_corners = cv2.undistortPoints(np.float32(all_corners), self.camK, self.camD)
         all_corners = np.array(all_corners).reshape((-1,2))
 
-        if len(all_corners) != 16:
+        if len(all_corners) != 20:
             raise RuntimeError("Incorrect number of aruco marker corners:" + str(len(all_corners)) + "\nIds found:" + str(ids))
 
         #Real Coordinates

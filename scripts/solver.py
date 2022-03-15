@@ -256,7 +256,7 @@ class Solver:
             self.tasks.pop()
 
         elif curr_task == SolverTask.MoveArm:
-            controller.move_to_pixelcoords(task_data['dest'], task_data.get('turn', 0))
+            controller.move_to_pixelcoords(task_data['dest'], task_data.get('turn', 0), task_data.get('height', .05))
             return
 
         elif curr_task == SolverTask.LiftPiece:
@@ -270,15 +270,18 @@ class Solver:
         elif curr_task == SolverTask.MatePiece:
             # Matches the two biggest pieces
             # Makes first piece the main puzzle
+            def find_weight_dest():
+                return pieces[0].get_location()
             self.tasks.pop()
             pieces = sorted(self.detector.pieces, key=lambda x: -x.area)
+            # Uses assumption that puzzle is starting from top left to figure out which piece is which
             loc1, loc2 = np.array(pieces[0].get_location()), np.array(pieces[1].get_location())
             delta = loc1 - loc2
             delta = delta / np.linalg.norm(delta)
             if np.arccos(np.dot(delta, [-1/np.sqrt(2), -1/np.sqrt(2)])) > 1.4:
                 pieces[0], pieces[1] = pieces[1], pieces[0]
             self.puzzle_grid.piece = (pieces[0])
-            dx, dy, dtheta, side0, side1 = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]), match_threshold=7, return_sides=True)
+            dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=7, return_sides=True)
             if dx == 0 and dy == 0:
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
@@ -288,6 +291,12 @@ class Solver:
                 self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
+            if dx != 0 or dy != 0:
+                # Move the weight to the main puzzle
+                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                self.tasks.push(SolverTask.MoveArm, task_data={'dest': find_weight_dest(), 'height': .10})
+                self.tasks.push(SolverTask.LiftPiece)
+                self.tasks.push(SolverTask.MoveArm, task_data={'dest': self.detector.find_aruco(4), 'height': .10})
             plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 255
             
             plan_img[side0] = [255, 255, 0]
@@ -306,7 +315,8 @@ class Solver:
             # to their correct orientation.
 
             for piece in sorted(self.piece_list, key=lambda piece: piece.xmin):
-
+                if not piece.is_valid():
+                    continue
                 # rotation_offset = self.get_rotation_offset(piece.img)
                 rotation_offset = piece.get_aligning_rotation()
                 ### TEMP
@@ -442,7 +452,14 @@ class Solver:
             # Mark out puzzle territory in green
             plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 40, 0], dtype=np.uint8)
 
+            def place_offset(location, offset=60):
+                print(temp_grid.get_neighbors(location), location)
+                neighbors = temp_grid.get_neighbors(location) - location
+                return -neighbors.sum(axis=0) * offset
+
             def processpiece(i, first=False):
+                offset = place_offset(locations[i]) if not first else 0
+                # offset = 0
                 loc = np.array([720, 380]) + temp_grid.grid_to_pixel(locations[i])
                 piece = self.piece_list[i]
                 # Color selected piece
@@ -457,16 +474,16 @@ class Solver:
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
                 hackystack.push(SolverTask.LiftPiece)
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc, 'turn': rots[i]})
+                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc + offset, 'turn': rots[i]})
                 hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
-                # if not first:
-                #     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
-                #     hackystack.push(SolverTask.MatePiece)
+                if not first:
+                    hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
+                    hackystack.push(SolverTask.MatePiece)
 
                 # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                 temp_grid.occupied[tuple(locations[i])] = 1
                 
-            # Find top right
+            # Find top left
             target_loc = [0, 0]
             for i in range(len(self.piece_list)):
                 if np.array_equal(locations[i], target_loc):
@@ -481,9 +498,9 @@ class Solver:
                 done = True
                 for i in range(len(self.piece_list)):
                     # Puts pieces in an order where they mate
-                    if (temp_grid.occupied[tuple(locations[i])] == 0 and \
-                        temp_grid.does_mate(locations[i])):
-                        processpiece(i)
+                    if (temp_grid.occupied[tuple(loc_list[i][1])] == 0 and \
+                        temp_grid.does_mate(loc_list[i][1])):
+                        processpiece(loc_list[i][0])
                         done = False
 
             while len(hackystack) > 0:

@@ -415,16 +415,25 @@ class ThomasPuzzlePiece:
 
     def find_contour_match(self, other_piece, match_threshold=5, return_sides=False):
         # Finds the transform from this piece to other_piece based on contour
+
+        def is_line(side, threshold=100):
+            a = np.hstack(side[:, 0].reshape((-1, 1)), 1)
+            b = side[:, 1]
+            x, resid, _, _ = np.linalg.lstsq(a, b)
+            return resid.sum() < threshold
+
         sidesA = other_piece.get_sides()
         sidesB = self.get_sides()
         best_err = np.inf
         ans = (0, 0, 0, [], []) if return_sides else (0, 0, 0)
         A_offset = np.array(other_piece.get_location()) + np.array(other_piece.img.shape)/2 - np.array(self.get_location()) - np.array(self.img.shape)/2
         for iA in range(len(sidesA)):
-            for iB in range(len(sidesB)):
-                (dx, dy, dtheta, err) = self.compareSides(sidesA[iA] + A_offset, sidesB[iB])
-                if err < match_threshold and best_err > err:
-                    ans = (-dx, dy, dtheta, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta)
+            if not is_line(sidesA[iA]):
+                for iB in range(len(sidesB)):
+                    if not is_line(sidesB[iB]):
+                        (dx, dy, dtheta, err) = self.compareSides(sidesA[iA] + A_offset, sidesB[iB])
+                        if err < match_threshold and best_err > err:
+                            ans = (-dx, dy, dtheta, sidesA[iA], sidesB[iB]) if return_sides else (-dx, dy, dtheta)
         
         return ans
         

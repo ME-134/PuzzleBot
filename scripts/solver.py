@@ -277,7 +277,7 @@ class Solver:
             if np.arccos(np.dot(delta, [-1/np.sqrt(2), -1/np.sqrt(2)])) > 1.4:
                 pieces[0], pieces[1] = pieces[1], pieces[0]
             self.puzzle_grid.piece = (pieces[0])
-            dx, dy, dtheta, sides = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]), match_threshold=7, return_sides=True)
+            dx, dy, dtheta, side0, side1 = ToThomasPuzzlePiece(pieces[1]).find_contour_match(ToThomasPuzzlePiece(pieces[0]), match_threshold=7, return_sides=True)
             if dx == 0 and dy == 0:
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
@@ -288,8 +288,9 @@ class Solver:
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
             plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 255
-            for side in sides:
-                plan_img[side] = [255, 255, 0]
+            
+            plan_img[side0] = [255, 255, 0]
+            plan_img[side1] = [0, 255, 0]
             dummy_piece = pieces[1].copy()
             dummy_piece.rotate(dtheta)
             dummy_piece.move_to(np.array(dummy_piece.get_location()[0]) + dx, np.array(dummy_piece.get_location()[1]) + dy)

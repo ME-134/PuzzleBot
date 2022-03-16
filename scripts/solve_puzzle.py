@@ -105,8 +105,8 @@ class SplineSequence:
         assert self.space == spline.space()
         self.splines.append(spline)
         self.latest_place, _ = spline.evaluate(spline.duration())
-    def append_goto(self, loc, minduration=0):
-        goto = GotoSpline(self.latest_place, loc, space=self.space, minduration=minduration)
+    def append_goto(self, loc, minduration=0, v0=0, vf=0):
+        goto = GotoSpline(self.latest_place, loc, v0=v0, vf=vf, space=self.space, minduration=minduration)
         self.splines.append(goto)
         self.latest_place = loc
     def append_gotos(self, locs):
@@ -230,7 +230,7 @@ class Controller:
 
         goal_theta = self.reset_theta
         if location == 'puzzle_region':
-            goal_theta = np.array([0.32224512100219727, 1.3041225671768188, 2.0830869674682617, -0.7699292898178101, 0.0]).reshape((5, 1))
+            goal_theta = np.array([0.52224512100219727, 1.3041225671768188, 2.0830869674682617, -0.7699292898178101, 0.0]).reshape((5, 1))
 
         Bounds.assert_theta_valid(goal_theta)
         Bounds.assert_theta_valid(self.lasttheta)
@@ -238,6 +238,22 @@ class Controller:
 
         spline = GotoSpline(self.lasttheta, goal_theta, v0=self.lastthetadot, rm=True)
         self.change_segments([spline])
+
+    def celebrate(self):
+        seq = SplineSequence(self.lasttheta, space='Joint')
+
+        tmin = np.array([0.4, 1.3, 1.2, -0.89, 0]).reshape((5, 1))
+        tmax = np.array([-0.4, 1.5, 1.7, -0.89, 0]).reshape((5, 1))
+        phase_offset = np.array([0, 0, np.pi/2, 0, 0]).reshape((5, 1))
+        freq = np.array([.25, .25, .5, 1, 1]).reshape((5, 1))
+        dur = 6
+        celebration_spline = SinTraj(tmin, tmax, dur, freq, offset=phase_offset, space='Joint')
+        p, v = celebration_spline.evaluate(0)
+        seq.append_goto(p, vf=v)
+        seq.append(celebration_spline)
+        p, v = celebration_spline.evaluate(dur)
+        seq.append_goto(self.mean_theta, v0=v)
+        self.change_segments(seq.as_list())
 
     def perturb(self, piece, space='Joint'):
         # Moves tip in area to perturb pieces in pixel space
@@ -610,7 +626,7 @@ class Controller:
         threshold = 0.1 # radian, feel free to change
         diff = np.linalg.norm(position - self.lasttheta_state)
         if diff > threshold:
-            errmsg = f"Commanded theta is too far from current theta: lasttheta={self.lasttheta}, command={position}, distance={diff}"
+            errmsg = f"Commanded theta is too far from current theta: lasttheta={self.lasttheta_state}, command={position}, distance={diff}"
             rospy.logwarn(errmsg)
             rospy.signal_shutdown(errmsg)
             raise RuntimeError(errmsg)

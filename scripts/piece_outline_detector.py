@@ -127,11 +127,11 @@ class PuzzlePiece:
         return (self.x_center - other.x_center) ** 2 + (self.y_center - other.y_center) ** 2 < 10**2
 
     def is_valid(self):
-        if not (8000 < self.area or 25000 > self.area):
+        if not (8000 < self.area):
             return False
-        if not (70 < self.width or 200 > self.width):
+        if not (70 < self.width):
             return False
-        if not (70 < self.height or 200 > self.height):
+        if not (70 < self.height):
             return False
         return True
 
@@ -246,6 +246,7 @@ class PuzzlePiece:
             ideal_width = 135
             ideal_angle = np.pi/2
             ideal_ratio = ideal_width / ideal_height
+            ideal_area = ideal_width * ideal_height
                         
             score1 = abs(dist(p1,p2)+dist(p3,p4)-2*ideal_width) / 100
             score1 += abs(dist(p2,p3)+dist(p1,p4)-2*ideal_height) / 100
@@ -262,6 +263,9 @@ class PuzzlePiece:
             score += abs(angle(p2, p3, p4) - ideal_angle) * 3
             score += abs(angle(p3, p4, p1) - ideal_angle) * 3
             score += abs(angle(p4, p1, p2) - ideal_angle) * 3
+
+            area = (dist(p1, p2) + dist(p3, p4)) * (dist(p4, p1) + dist(p3, p2)) / 4
+            score += abs(area - ideal_area) / ideal_area
 
             ratio = (dist(p1, p2) + dist(p3, p4)) / (dist(p4, p1) + dist(p3, p2))
             if ratio < 1:
@@ -677,10 +681,15 @@ class Detector:
         image = self.crop_raw(self.bridge.imgmsg_to_cv2(image_msg, "bgr8"))
 
         (all_corners, ids, rejected) = cv2.aruco.detectMarkers(image, self.arucoDict, parameters=self.arucoParams)
-        all_corners = np.array(all_corners).reshape((-1,2))
-        ids = ids.flatten()
-        i = list(ids).index(index)
-        return all_corners[i*4:i*4+4].mean(axis=0)
+        
+        def fun(corners, ids):
+            corners = np.array(corners).reshape((-1,2))
+            ids = ids.flatten()
+            i = list(ids).index(index)
+            return corners[i*4:i*4+4].mean(axis=0)
+        
+        # print(rejected)
+        return fun(all_corners, ids)
 
     def death_region(self):
         return (600, 850, 1150, 1080)

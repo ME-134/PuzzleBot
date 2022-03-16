@@ -41,10 +41,12 @@ class SolverTask(enum.Enum):
     MoveArm = 6
     LiftPiece = 7
     PlacePiece = 8
-    MatePiece = 10
+    MatePiece = 9
 
     # MISC TASKS
-    InitAruco = 9
+    InitAruco = 10
+    MoveWeightAway = 11
+    Celebrate = 12
 
 class TaskStack:
     def __init__(self):
@@ -102,6 +104,8 @@ class Solver:
 
         # Stack
         self.tasks = TaskStack()
+        self.tasks.push(SolverTask.Celebrate)
+        self.tasks.push(SolverTask.MoveWeightAway)
         self.tasks.push(SolverTask.PutPiecesTogether)
         self.tasks.push(SolverTask.SeparatePieces)
         self.tasks.push(SolverTask.InitAruco)
@@ -110,7 +114,7 @@ class Solver:
         # Series of actions to perform
         self.action_queue = []
 
-        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 50)
+        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 100)
         self.num_pieces = 20
         self.pieces_cleared = 0
         self.separated_loc = np.array([220, 100])
@@ -206,6 +210,10 @@ class Solver:
         # MISC TASKS
         elif curr_task == SolverTask.InitAruco:
             status.assert_ok()
+        elif curr_task == SolverTask.MoveWeightAway:
+            status.assert_ok()
+        elif curr_task == SolverTask.Celebrate:
+            status.assert_ok()
         else:
             raise RuntimeError(f"Unknown task: {curr_task}")
 
@@ -265,6 +273,21 @@ class Solver:
         elif curr_task == SolverTask.InitAruco:
             self.detector.init_aruco()
             self.tasks.pop()
+        
+        elif curr_task == SolverTask.MoveWeightAway:
+            self.tasks.pop()
+
+            weight_origin = self.detector.find_aruco(4)
+            print(weight_origin)
+            weight_dest = np.array([1400, 900]).astype(np.float32)
+            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'height': .01})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': weight_dest, 'height': .10})
+            self.tasks.push(SolverTask.LiftPiece, task_data={'height': .007})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': weight_origin, 'height': .10})
+
+        elif curr_task == SolverTask.Celebrate:
+            controller.celebrate()
+            return
 
         elif curr_task == SolverTask.MoveArm:
             controller.move_to_pixelcoords(task_data['dest'], task_data.get('turn', 0), task_data.get('height', .05))
@@ -448,7 +471,7 @@ class Solver:
 
             locations, rots = self.mask_match(self.piece_list)
             hackystack = TaskStack() # temporary hacky solution
-            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 50)
+            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 100)
 
             plan_img = self.detector.latestImage.copy()
 
@@ -486,7 +509,6 @@ class Solver:
 
                 # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                 temp_grid.occupied[tuple(locations[i])] = 1
-                
             # Find top left
             target_loc = [0, 0]
             for i in range(len(self.piece_list)):
@@ -500,6 +522,7 @@ class Solver:
             done = False
             while not done:
                 done = True
+                # for i in range(1):
                 for i in range(len(self.piece_list)):
                     # Puts pieces in an order where they mate
                     if (temp_grid.occupied[tuple(loc_list[i][1])] == 0 and \
@@ -709,7 +732,8 @@ class Solver:
 
     def mask_match(self, pieces):
         # auto-detect
-        ref = cv2.imread('done_exploded_colored4.jpg')
+        ref = cv2.imread('/home/me134/me134ws/src/HW1/done_exploded_colored4.jpg')
+        assert ref is not None
         detector = IlyaDetector()
         detector.process(ref)
         sol_pieces = detector.pieces.copy()
@@ -736,7 +760,7 @@ class Solver:
             color_mask[nonzero] -= np.mean(color_mask)
             color_mask[nonzero] /= np.std(color_mask)
             colors = np.mean(color_mask[nonzero], axis=0)
-            print(colors)
+            # print(colors)
             return colors
         piece_colors = np.zeros((len(pieces), 3))
         sol_piece_colors = np.zeros((len(pieces), 3))

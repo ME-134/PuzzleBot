@@ -43,13 +43,13 @@ class GotoSpline(SafeCubicSpline):
         if 'vf' in kwargs:
             vf = kwargs['vf']
             del kwargs['vf']
-        min_time = 0.5
+        min_time = 1
         if 'minduration' in kwargs:
             min_time = max(min_time, kwargs['minduration'])
             del kwargs['minduration']
-        speed = 0.75 # rad per sec
+        speed = 0.5 # rad per sec
         max_diff = np.max(np.abs(p0 - pf))
-        time = max_diff / speed + min_time
+        time = max(max_diff / speed, min_time)
         assert time >= min_time
         SafeCubicSpline.__init__(self, p0, v0, pf, vf, time, **kwargs)
 
@@ -226,7 +226,7 @@ class Controller:
         # Assumes that the initial theta is valid.
         # Will not attempt to reset a theta which is out of bounds.
 
-        rospy.loginfo("Resetting robot")
+        rospy.loginfo("[Controller] Resetting robot")
 
         goal_theta = self.reset_theta
 
@@ -285,33 +285,42 @@ class Controller:
 
     def _create_jiggle_spline(self, center, height = 0.011):
         # only works in task space
-        pos_offset = .0033
-        rot_offset = .1
-        duration = 5
+        # pos_offset = .0033
+        # rot_offset = .1
+        # duration = 5
+        pos_offset = .004
+        rot_offset = .11
+        duration = 4
         pgoal1 = center + np.array([-pos_offset, -pos_offset, height, -rot_offset, 0]).reshape((5, 1))
         pgoal2 = center + np.array([pos_offset, pos_offset, height, rot_offset, 0]).reshape((5, 1))
         phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
         freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
         return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
-    def _piece_down_up(self, new_pump_value, jiggle=False, height=-0.005, space='Joint', mindur=1):
+    def _piece_down_up(self, new_pump_value, jiggle=False, height=-0.005, space='Joint', careful=True, tightening=np.array([0, 0])):
+        mindur = 1 if careful else 0
         curr_pos = np.float32([0, 0, 0, -self.lasttheta[4, 0]+self.lasttheta[0,0], 0]).reshape((5, 1))
         curr_pos[:3] = self.get_current_position()
         med_pos = curr_pos.copy()
         med_pos[2, 0] = 0.018 + height
         pickup_pos = curr_pos.copy()
         pickup_pos[2, 0] = height
+        do_tightening = np.linalg.norm(tightening) > 0
+        tighten_loc = pickup_pos + np.array([1, -1, 1, 0, 0]).reshape((5, 1)) * np.array(list(tightening) + [0.005, 0, 0]).reshape((5, 1))
         if space == 'Joint':
             up = self.lasttheta
             med = self.ikin(med_pos, up)
             down = self.ikin(pickup_pos, med)
+            tight = self.ikin(tighten_loc, down)
         elif space == 'Task':
             up = curr_pos
             med = med_pos
             down = pickup_pos
+            tight = tighten_loc
         seq = SplineSequence(up, space=space)
         if jiggle:
-            seq.append_goto(med, minduration=mindur)
+            if careful:
+                seq.append_goto(med, minduration=mindur)
             seq.append_goto(down, minduration=mindur)
             # seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
 
@@ -324,100 +333,29 @@ class Controller:
             seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
             seq.change_space(down, space)
 
-            seq.append_goto(med, minduration=mindur)
+            if do_tightening:
+                seq.append_goto(tight, minduration=mindur)
+            if careful or (new_pump_value == False):
+                seq.append_goto(med, minduration=mindur)
             seq.append_goto(up, minduration=mindur)
         else:
-            seq.append_goto(med, minduration=mindur)
+            if careful:
+                seq.append_goto(med, minduration=mindur)
             seq.append_goto(down, minduration=mindur)
             seq.append(FuncSegment(lambda: self.set_pump(new_pump_value), minduration=mindur))
-            seq.append_goto(med, minduration=mindur)
+            if do_tightening:
+                seq.append_goto(tight, minduration=mindur)
+            if careful or (new_pump_value == False):
+                seq.append_goto(med, minduration=mindur)
             seq.append_goto(up, minduration=mindur)
 
         self.change_segments(seq.as_list())
 
-    def place_piece(self, jiggle=False, space='Joint', careful=True, height=.005):
-        mindur = 1 if careful else 0.5
-        self._piece_down_up(False, jiggle=jiggle, space=space, mindur=mindur, height=height)
+    def place_piece(self, jiggle=False, space='Joint', careful=True, height=.005, tightening=np.array([0, 0])):
+        self._piece_down_up(False, jiggle=jiggle, space=space, careful=careful, height=height, tightening=tightening)
 
     def lift_piece(self, space='Joint', careful=True, height=.005):
-        mindur = 1 if careful else 0
-        self._piece_down_up(True, jiggle=False, space=space, mindur=mindur, height=height)
-
-    # DEPRECATED
-    def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.014):
-        # piece_origin and piece_destination given in pixel space
-        rospy.loginfo(f"[Controller] Moving piece from {piece_origin} to {piece_destination}")
-        if place_height is None:
-            # Pickup and place same height by default
-            place_height = pickup_height
-        # move from current pos to piece_origin
-        def get_piece_and_hover_thetas(pixel_coords, turn=0):
-            x, y = pixel_coords
-            x, y = self.detector.screen_to_world(x, y)
-            print("coords: ", pixel_coords, x, y)
-            pgoal = np.array([x, y, pickup_height, turn, 0]).reshape((5, 1))
-            hover = pgoal+np.array([0, 0, hover_amount, 0, 0]).reshape((5, 1))
-
-            if space == 'Joint':
-                hover_theta, J = self.ikin(hover, self.mean_theta, return_J = True)
-                rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}\n\t Goal theta: {hover_theta.flatten()}")
-                goal_theta, J = self.ikin(pgoal, hover_theta, return_J = True, step_size=.3)
-                rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}\n\t Goal theta: {goal_theta.flatten()}")
-                return goal_theta, hover_theta, J
-            elif space == 'Task':
-                rospy.loginfo(f"[Controller] Chose location: {hover.flatten()}")
-                rospy.loginfo(f"[Controller] Chose location: {pgoal.flatten()}")
-                return pgoal, hover, _
-            else:
-                errmsg = f"Space \"{space}\" is invalid"
-                rospy.signal_shutdown(errmsg)
-                raise InvalidSpaceException(errmsg)
-
-        splines = list()
-        origin_goal, origin_hover, J_origin = get_piece_and_hover_thetas(piece_origin)
-        dest_goal,   dest_hover,   J_dest   = get_piece_and_hover_thetas(piece_destination, turn=turn)
-        down_vel = np.array([0, 0, -.1, 0, 0]).reshape((5,1))
-        origin_vel = np.linalg.pinv(J_origin)@down_vel
-        dest_vel = np.linalg.pinv(J_dest)@down_vel
-        splines.append(SafeCubicSpline(self.lasttheta, self.lastthetadot, origin_hover, origin_vel, 3, space=space))
-        splines.append(SafeCubicSpline(origin_hover, origin_vel, origin_goal, 0, 1, space=space))
-        splines.append(FuncSegment(lambda: self.set_pump(True)))
-        splines.append(GotoSpline(origin_goal, origin_goal, space=space))
-        splines.append(GotoSpline(origin_goal, origin_hover, space=space))
-        splines.append(GotoSpline(origin_hover, dest_hover, vf=dest_vel, space=space))
-        if jiggle:
-            pos_offset = .004
-            rot_offset = .1
-            duration = 5
-            jiggle_height = 0.0
-            x, y = piece_destination
-            x, y = self.detector.screen_to_world(x, y)
-            pgoal1 = np.array([x - pos_offset, y - pos_offset, jiggle_height, turn - rot_offset, 0]).reshape((5, 1))
-            pgoal2 = np.array([x + pos_offset, y + pos_offset, jiggle_height, turn + rot_offset, 0]).reshape((5, 1))
-            phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
-            freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
-            jiggle_movement = SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
-
-            hover = np.array([x, y, pickup_height + hover_amount, turn, 0]).reshape((5, 1))
-            pgoal, _ = jiggle_movement.evaluate(0)
-            splines.append(SafeCubicSpline(hover, down_vel, pgoal, 0, space='Task'))
-            splines.append(FuncSegment(lambda: self.set_pump(False)))
-            # splines.append(GotoSpline(pgoal, pgoal, space='Task'))
-
-            splines.append(jiggle_movement)
-            if space == 'Joint':
-                p, _ = jiggle_movement.evaluate(duration)
-                jiggle_theta = self.ikin(p, dest_goal)
-            elif space == 'Task':
-                jiggle_theta = jiggle_movement
-            splines.append(SafeCubicSpline(jiggle_theta, 0, dest_goal, 0, 1, space=space))
-            splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))
-        else:
-            splines.append(SafeCubicSpline(dest_hover, dest_vel, dest_goal, 0, 1, space=space))
-            splines.append(FuncSegment(lambda: self.set_pump(False)))
-            splines.append(GotoSpline(dest_goal, dest_goal, space=space))
-            splines.append(SafeCubicSpline(dest_goal, 0, dest_hover, 0, 2, space=space))
-        self.change_segments(splines)
+        self._piece_down_up(True, jiggle=False, space=space, careful=careful, height=height)
 
     def idle(self):
         self.change_segments([])
@@ -563,8 +501,16 @@ class Controller:
     def update(self, t):
         if self.t0 is None:
             self.t0 = t
-
+        
+        if self.last_t is not None:
+            dt = t - self.last_t
+            if dt > 0.500:
+                rospy.logwarn(f'[Controller] Update took way too long!: {int(dt)*1000}ms')
+                rospy.logwarn('[Controller] Attempting fix py adjusting t0')
+                self.t0 += dt
+        
         self.last_t = t
+
 
         #print(self.state)
 
@@ -605,6 +551,7 @@ class Controller:
                 # Sometimes the above steps can take a while
                 # so this line prevents the robot from suddenly jerking
                 self.t0 = rospy.Time.now().to_sec()
+                self.last_t = self.t0
                 return
 
         #print(self.segments[self.index].space())
@@ -658,11 +605,11 @@ class Controller:
         Bounds.assert_thetadot_valid(velocity)
 
         # Don't command sudden changes in position
-        threshold = 1 # radian, feel free to change
-        diff = np.linalg.norm(position - self.lasttheta)
+        threshold = 0.1 # radian, feel free to change
+        diff = np.linalg.norm(position - self.lasttheta_state)
         if diff > threshold:
             errmsg = f"Commanded theta is too far from current theta: lasttheta={self.lasttheta}, command={position}, distance={diff}"
-            rospy.logerror(errmsg)
+            rospy.logwarn(errmsg)
             rospy.signal_shutdown(errmsg)
             raise RuntimeError(errmsg)
 

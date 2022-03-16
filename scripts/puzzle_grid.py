@@ -10,15 +10,14 @@ def get_xy_min(arr):
     return (x, y)
 
 class PuzzleGrid():
-    def __init__(self, width_n = 5, height_n = 4, spacing_height = 200, spacing_width = 200, offset_x = 200, offset_y = 200):
+    def __init__(self, width_n = 5, height_n = 4, offset = np.array([0, 0]), spacing_height = 200, spacing_width = 200, offset_x = 200, offset_y = 200):
         self.width_n = width_n
         self.height_n = height_n
         self.occupied = np.zeros((width_n, height_n))
         self.oriented = np.zeros((width_n, height_n))
         self.spacing_height = spacing_height
         self.spacing_width = spacing_width
-        self.offset_x = offset_x
-        self.offset_y = offset_y
+        self.offset = offset
         self.grid_centers = np.array(
             [[[offset_x + i*spacing_width, offset_y + j*spacing_height]for j in range(height_n)] for i in range(width_n)]
         )
@@ -91,7 +90,13 @@ class PuzzleGrid():
         '''
             Returns position in pixel space for a piece on the grid
         '''
-        pos = [[[ 75,  60],
+        if self.piece is not None:
+            # Find the offset by top left corner
+            drift = np.array([self.piece.xmin, self.piece.ymin]) - self.offset
+        else:
+            drift = 0
+
+        pos = np.array([[[ 75,  60],
                 [ 65, 170],
                 [ 75, 280],
                 [ 75, 393]],
@@ -114,6 +119,6 @@ class PuzzleGrid():
                 [[613,  60],
                 [603, 170],
                 [608, 280],
-                [603, 392]]]
-        return pos[loc[0]][loc[1]]
+                [603, 392]]])
+        return pos[loc[0]][loc[1]] + self.offset + drift
         

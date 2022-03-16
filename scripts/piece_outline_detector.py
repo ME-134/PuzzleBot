@@ -258,10 +258,10 @@ class PuzzlePiece:
             score += ((dist(p1, p2) - dist(p3, p4)) ** 2) / 1000
             score += ((dist(p2, p3) - dist(p1, p4)) ** 2) / 1000
             
-            score += abs(angle(p1, p2, p3) - ideal_angle)
-            score += abs(angle(p2, p3, p4) - ideal_angle)
-            score += abs(angle(p3, p4, p1) - ideal_angle)
-            score += abs(angle(p4, p1, p2) - ideal_angle)
+            score += abs(angle(p1, p2, p3) - ideal_angle) * 3
+            score += abs(angle(p2, p3, p4) - ideal_angle) * 3
+            score += abs(angle(p3, p4, p1) - ideal_angle) * 3
+            score += abs(angle(p4, p1, p2) - ideal_angle) * 3
 
             ratio = (dist(p1, p2) + dist(p3, p4)) / (dist(p4, p1) + dist(p3, p2))
             if ratio < 1:
@@ -720,10 +720,10 @@ class Detector:
         screen5 = np.mean(box5, axis=0)
 
         ids = ids.flatten()
-        ids_reorder = np.zeros((4)).astype(int)
-        for i in range(4):
+        ids_reorder = np.zeros((len(ids))).astype(int)
+        for i in range(len(ids)):
             ids_reorder[i] = np.where(ids == i)[0]
-        screens = np.float32([screen1, screen2, screen3, screen4, screen5])[ids_reorder]
+        screens = np.float32([screen1, screen2, screen3, screen4, screen5])[ids_reorder[:4]]
         worlds = np.float32([world1, world2, world3, world4])
         self.aruco_corners_pixel = np.float32(all_corners.reshape((-1, 4, 2)))[ids_reorder]
         self.aruco_pixel = screens
@@ -784,7 +784,7 @@ class Detector:
         img_orig = img.copy()
         # Filter out background
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        background_lower = (0, 0, 50)
+        background_lower = (0, 0, 80)
         background_upper = (255, 30, 220)
         binary = cv2.inRange(hsv, background_lower, background_upper) 
 
@@ -793,14 +793,19 @@ class Detector:
 
         # Color out aruco markers
         if self.aruco_corners_pixel is not None:
-            axmax = np.max(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
-            aymax = np.max(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
-            axmin = np.min(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
-            aymin = np.min(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+            axmax = np.max(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(5, 1)
+            aymax = np.max(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(5, 1)
+            axmin = np.min(self.aruco_corners_pixel[:, :, 0], axis=1).reshape(5, 1)
+            aymin = np.min(self.aruco_corners_pixel[:, :, 1], axis=1).reshape(5, 1)
             aruco_locs = np.hstack((axmin, aymin, axmax, aymax)).astype(int)
-            for aruco_loc in aruco_locs:
+            for aruco_loc in aruco_locs[:4]:
                 xmin, ymin, xmax, ymax = tuple(aruco_loc)
                 blocks[ymin:ymax, xmin:xmax] = 0
+
+            # Color in last aruco marker (so that it does not make a whole in the weight)
+            weight_aruco = self.find_aruco(4)
+            x, y = tuple(weight_aruco.astype(int))
+            blocks[y-20:y+20,x-20:x+20] = 255
 
         # Color out death region
         xmin, ymin, xmax, ymax = self.death_region()

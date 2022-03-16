@@ -6,7 +6,6 @@ import enum
 import rospy
 
 import cv2
-from vision import cvt_color
 
 from sensor_msgs.msg   import Image
 
@@ -15,7 +14,6 @@ import numpy as np
 from thomas_detector import ThomasDetector, ThomasPuzzlePiece, ToThomasPuzzlePiece
 from piece_outline_detector import Detector as IlyaDetector
 from puzzle_grid import PuzzleGrid
-import vision
 
 COLORLIST = ((000, 000, 255),           # Red
              (000, 255, 000),           # Green
@@ -78,7 +76,7 @@ class TaskStack:
                 s += " | Task Data: " + str(taskdata)
             s += "\n"
         if len(self.tasks) > 5:
-            print(f"... {len(self.tasks) - 5} more items on the stack not shown.")
+            s += f"... {len(self.tasks) - 5} more items on the stack not shown\n."
         s += "[Bottom]"
         return s
 
@@ -100,7 +98,7 @@ class Solver:
 
         self.pub_clearing_plan = rospy.Publisher("/solver/clearing_plan",  Image, queue_size=1)
         self.pub_contour_matching = rospy.Publisher("/solver/matching",  Image, queue_size=1)
-        self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/done_exploded_colored7.jpg')
+        # self.vision = vision.VisionMatcher('/home/me134/me134ws/src/HW1/gunter_exploded.jpg')
 
         # Stack
         self.tasks = TaskStack()
@@ -112,7 +110,7 @@ class Solver:
         # Series of actions to perform
         self.action_queue = []
 
-        self.puzzle_grid = PuzzleGrid()
+        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 35)
         self.num_pieces = 20
         self.pieces_cleared = 0
         self.separated_loc = np.array([220, 100])
@@ -136,7 +134,6 @@ class Solver:
         Args: status, which is either OK or some sort of error.
         Return: None
         '''
-        print("notify action complete: ", self.tasks)
         if not self.tasks:
             rospy.logwarn("[Solver] Action completed recieved but there are no current tasks!")
             return
@@ -161,14 +158,14 @@ class Solver:
         elif curr_task == SolverTask.PutPiecesTogether:
             status.assert_ok()
 
-            self.pieces_solved += 1
-            if self.pieces_solved == self.num_pieces:
-                rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! Moving on to next task.")
-                return
+            # self.pieces_solved += 1
+            # if self.pieces_solved == self.num_pieces:
+            rospy.loginfo(f"[Solver] Solved all {self.num_pieces} pieces! All done.")
+            return
 
             # Get a view of the available pieces
-            self.tasks.append(SolverTask.PutPiecesTogether)
-            self.tasks.append(SolverTask.GetViewCleared, task_data={'merge': False})
+            # self.tasks.append(SolverTask.PutPiecesTogether)
+            # self.tasks.append(SolverTask.GetViewCleared, task_data={'merge': False})
 
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             # Out of scope for now
@@ -217,7 +214,6 @@ class Solver:
         This function will continuously apply the action at the top of the stack.
         To break out of the recursive loop, simply "return".
         '''
-        print("apply next action: ", self.tasks)
 
         if not self.tasks:
             rospy.loginfo("[Solver] No current tasks, sending Idle command.")
@@ -282,7 +278,8 @@ class Solver:
         elif curr_task == SolverTask.PlacePiece:
             controller.place_piece(jiggle=task_data['jiggle'], 
                 careful=task_data.get('careful', True),
-                height=task_data.get('height', -.005))
+                height=task_data.get('height', -.005),
+                tightening=task_data.get('tightening', np.array([0, 0])))
             return
 
         elif curr_task == SolverTask.MatePiece:
@@ -299,6 +296,12 @@ class Solver:
             # Makes first piece the main puzzle
             self.tasks.pop()
             pieces = sorted(self.detector.pieces, key=lambda x: x.xmin + x.ymin)
+
+            if len(pieces) < 2:
+                rospy.logwarn("[Solver]: Detected less than 2 pieces while mating, aborting.")
+                self.tasks.pop()
+                return self.apply_next_action(controller)
+
             solved_part = pieces[0]
             new_piece = pieces[1]
             # Uses assumption that puzzle is starting from top left to figure out which piece is which
@@ -316,12 +319,19 @@ class Solver:
             piece_size = np.array([135, 115])
             neighbor_mate = np.array(neighbors_rel[0])
             neighbor_vec = np.array(neighbors_rel[0]) - grid_loc
-            puzzle_edge = np.array(self.get_puzzle_region()[0:2]) + 35 + self.puzzle_grid.grid_to_pixel(neighbor_mate) - piece_size * neighbor_vec/2
+            puzzle_edge = self.puzzle_grid.grid_to_pixel(neighbor_mate) - piece_size * neighbor_vec/2
             piece_edge  = loc2 + piece_size * neighbor_vec/2
             
             alignment_offset = np.array([0, 0], dtype=int)
             if np.all(grid_loc == (0, 1)):
                 alignment_offset = np.array([0, 6], dtype=int)
+
+            # Cropping the left side of the puzzle if puzzle is too big
+            crop_multiplier = np.array([0, 0])
+            piece_width = 135
+            piece_height = 115
+            solved_part.mask[solved_part.ymin:solved_part.ymin + crop_multiplier[1]*piece_height, \
+                            solved_part.xmin:solved_part.xmax + crop_multiplier[0]*piece_width] = 0
 
             dx, dy, dtheta = Solver.get_mating_correction(solved_part, new_piece, puzzle_edge, piece_edge)
 
@@ -329,23 +339,19 @@ class Solver:
             
             # dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=20, return_sides=True)
             
-            if dx == 0 and dy == 0:
-                # FIXME
-                piece_destination = self.find_available_piece_spot(pieces[1], 0)
-                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
-                self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
-            else:
-                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True, 'height': -.001})
-                self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point() + np.array([dx, dy]) + alignment_offset, 'turn': dtheta})
+            self.puzzle_grid.occupied[grid_loc[0], grid_loc[1]] = 1
+            # for normal puzzle: height = -.001
+            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True, 'height': 0.001, 'tightening': -np.array(grid_loc) * 0.002})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point() + np.array([dx, dy]) + alignment_offset, 'turn': dtheta})
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point()})
             if dx != 0 or dy != 0:
                 weight_origin = self.detector.find_aruco(4)
                 weight_dest = find_weight_dest()
                 weight_distance = np.linalg.norm(weight_dest - weight_origin)
-                rospy.loginfo(f"Weight is {weight_distance} away")
+                rospy.loginfo(f"[Solver] Weight is {weight_distance} away")
                 # Don't bother moving the weight if it is close enough
-                if weight_distance > 50 and solved_part.area > 15000*5:
+                if weight_distance > 50 and solved_part.area < 15000*5:
                     # Move the weight to the main puzzle
                     self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'height': .01})
                     self.tasks.push(SolverTask.MoveArm, task_data={'dest': weight_dest, 'height': .10})
@@ -361,6 +367,8 @@ class Solver:
             dummy_piece.move_to(np.array(dummy_piece.get_location()[0]) + dx, np.array(dummy_piece.get_location()[1]) + dy)
             plan_img[pieces[0].mask.astype(bool)] += np.array(pieces[0].color).astype(np.uint8)
             plan_img[dummy_piece.mask.astype(bool)] += np.array(pieces[1].color).astype(np.uint8)
+            cv2.circle(plan_img, tuple(puzzle_edge.astype(int)), 15, (255, 255, 255), -3)
+            cv2.circle(plan_img, tuple(piece_edge.astype(int)), 15, (255, 255, 255), -3)
             self.pub_contour_matching.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
 
         # HIGH-LEVEL TASKS
@@ -429,92 +437,12 @@ class Solver:
         elif curr_task == SolverTask.PutPiecesTogether:
             # All pieces should now be on the border and oriented orthogonal.
             # Select pieces from the border and put them in the right place
-            '''
-            radial = True
 
-            locations, rots, scores = self.vision.match_all(self.piece_list)
-            done = False
-            hackystack = TaskStack() # temporary hacky solution
-            temp_grid = PuzzleGrid()
-
-            plan_img = self.detector.latestImage.copy()
-
-            # Mark out puzzle territory in green
-            plan_img[self.get_puzzle_region_as_slice()] += np.array([0, 40, 0], dtype=np.uint8)
-
-            def place_offset(location, offset=50):
-                print(temp_grid.get_neighbors(location), location)
-                neighbors = temp_grid.get_neighbors(location) - location
-                return -neighbors.sum(axis=0) * offset
-
-            def processpiece(i, first=False):
-                offset = place_offset(locations[i]) if not first else 0
-                # offset = 0
-                loc = np.array([720, 380]) + temp_grid.grid_to_pixel(locations[i])
-                piece = self.piece_list[i]
-                # Color selected piece
-                color = np.array(piece.color).astype(np.uint8)
-                # plan_img[piece.bounds_slice()] += piece.color.astype(np.uint8)
-                dummy_piece = piece.copy()
-                dummy_piece.rotate(rots[i]*np.pi/2)
-                dummy_piece.move_to(loc[0], loc[1])
-                plan_img[piece.bounds_slice()] += color
-                plan_img[dummy_piece.mask.astype(bool)] += color
-
-                # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_location()})
-                hackystack.push(SolverTask.LiftPiece)
-                hackystack.push(SolverTask.MoveArm, task_data={'dest': loc + offset, 'turn': rots[i]*np.pi/2})
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
-                if not first:
-                    hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
-                    hackystack.push(SolverTask.MatePiece)
-
-                # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
-                temp_grid.occupied[tuple(locations[i])] = 1
-
-            if radial:
-                # Find top right
-                target_loc = [0, 0]
-                for i in range(len(self.piece_list)):
-                    if np.all(locations[i] == target_loc):
-                        break
-                processpiece(i, first=True)
-                loc_list = list()
-                for i in range(len(self.piece_list)):
-                    loc_list.append([i, locations[i]])
-                list.sort(loc_list, key=lambda x: np.linalg.norm(x[1]-target_loc))
-                while not done:
-                    done = True
-                    for i in range(len(self.piece_list)):
-                        # Puts pieces in an order where they mate
-                        if (scores[i] < 99999 and \
-                            temp_grid.occupied[tuple(locations[i])] == 0 and \
-                            temp_grid.does_mate(locations[i])):
-                            processpiece(i)
-                            done = False
-            else:
-                processpiece(0, first=True)
-                while not done:
-                    done = True
-                    for i in range(1, len(self.piece_list)):
-                        # Puts pieces in an order where they mate
-                        if (scores[i] < 99999 and \
-                            temp_grid.occupied[tuple(locations[i])] == 0 and \
-                            temp_grid.does_mate(locations[i])):
-                            processpiece(i)
-                            done = False
-
-            while len(hackystack) > 0:
-                task, task_data = hackystack.pop()
-                self.tasks.push(task, task_data=task_data)
-
-            self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
-            '''
+            self.tasks.pop()
 
             locations, rots = self.mask_match(self.piece_list)
             hackystack = TaskStack() # temporary hacky solution
-            temp_grid = PuzzleGrid()
+            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 35)
 
             plan_img = self.detector.latestImage.copy()
 
@@ -529,8 +457,7 @@ class Solver:
             def processpiece(i, first=False):
                 offset = place_offset(locations[i]) if not first else 0
                 # offset = 0
-                padding = 35
-                loc = np.array(self.get_puzzle_region()[0:2]) + padding + temp_grid.grid_to_pixel(locations[i])
+                loc = temp_grid.grid_to_pixel(locations[i])
                 piece = self.piece_list[i]
                 loc = np.array(piece.correct_point_by_pickup_offset(loc))
                 # Color selected piece
@@ -546,7 +473,7 @@ class Solver:
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_pickup_point()})
                 hackystack.push(SolverTask.LiftPiece, task_data={'careful': first})
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': loc + offset, 'turn': rots[i]})
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'careful': first})
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'careful': False})
                 if not first:
                     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
                     hackystack.push(SolverTask.MatePiece, task_data={'neighbors':temp_grid.get_neighbors(locations[i]), 'grid_loc': locations[i]})
@@ -580,37 +507,6 @@ class Solver:
 
             self.pub_clearing_plan.publish(self.detector.bridge.cv2_to_imgmsg(plan_img, "bgr8"))
 
-            # target_piece = self.reference_pieces[self.pieces_solved]
-            # for piece in self.piece_list:
-            #     if piece.fully_contained_in_region(self.get_puzzle_region()):
-            #         continue
-            # #     if self.pieces_match(piece.img, target_piece.img):
-            # #         break
-            # # else:
-            # #     # Error, no piece found!
-            # #     rospy.logwarn(f"[Solver] Target piece #{self.peices_solved} not found! Getting a new view.")
-
-            # #     # Attempt to recover by getting another view of the camera
-            # #     self.tasks.append(SolverTask.GetView)
-            # #     return self.apply_next_action(controller)
-
-            #     piece_origin = piece.get_center()
-
-            #     # FIXME, this isn't quite right but is a good start
-            #     # piece_destination = target_piece.get_center()
-            #     val = cvt_color(piece.natural_img) #* (piece.thomas_mask.reshape(piece.thomas_mask.shape[0], piece.thomas_mask.shape[1], 1) > 128)
-            #     coords, rot = self.vision.calculate_xyrot(val)
-            #     rospy.loginfo(f"Piece Location: {coords}, Rotation: {rot}")
-            #     piece_destination = np.array(self.get_puzzle_region[[0, 1]]) + self.puzzle_grid.get_pixel_from_grid(coords)
-            #     if self.puzzle_grid.occupied.sum() > 0:
-            #         weight_destination = self.puzzle_grid.get_neighbor(coords)
-            #         weight_pos_offset = np.array(weight_destination) - np.array(coords)
-            #         weight_destination = self.puzzle_grid.get_pixel_from_grid(weight_destination)
-            #         controller.move_weight(weight_destination)
-            #         self.action_queue.append(lambda: controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=True))
-            #     else:
-            #         controller.move_piece(piece_origin, piece_destination, turn = -rot * np.pi/2, jiggle=False)
-            #     return
         elif curr_task == SolverTask.SeparateOverlappingPieces:
             # Out of scope for now.
             raise NotImplementedError()
@@ -685,10 +581,10 @@ class Solver:
         return (slice(ymin, ymax), slice(xmin, xmax))
 
     def get_aruco_regions(self):
-        xmax = np.max(self.detector.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
-        ymax = np.max(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
-        xmin = np.min(self.detector.aruco_corners_pixel[:, :, 0], axis=1).reshape(4, 1)
-        ymin = np.min(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(4, 1)
+        xmax = np.max(self.detector.aruco_corners_pixel[:, :, 0], axis=1).reshape(5, 1)
+        ymax = np.max(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(5, 1)
+        xmin = np.min(self.detector.aruco_corners_pixel[:, :, 0], axis=1).reshape(5, 1)
+        ymin = np.min(self.detector.aruco_corners_pixel[:, :, 1], axis=1).reshape(5, 1)
         return np.hstack((xmin, ymin, xmax, ymax)).astype(int)
 
     def find_available_piece_spot(self, piece, rotation, move_to_puzzle_region=False):
@@ -806,7 +702,8 @@ class Solver:
         return score
 
     def mask_match(self, pieces):
-        ref = cv2.imread('done_exploded_colored4.jpg')
+        # auto-detect
+        ref = cv2.imread('gunter_exploded.jpg')
         detector = IlyaDetector()
         detector.process(ref)
         sol_pieces = detector.pieces.copy()

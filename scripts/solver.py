@@ -333,7 +333,7 @@ class Solver:
             delta = delta / np.linalg.norm(delta)
 
             def find_weight_dest():
-                return loc1 + delta * 30
+                return loc1 + delta * 40
 
             self.puzzle_grid.piece = (pieces[0])
 

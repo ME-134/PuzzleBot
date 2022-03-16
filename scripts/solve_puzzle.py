@@ -242,7 +242,7 @@ class Controller:
     def celebrate(self):
         seq = SplineSequence(self.lasttheta, space='Joint')
 
-        tmin = np.array([0.4, 1.3, 1.2, -0.89, 0]).reshape((5, 1))
+        tmin = np.array([0.4, 1.5, 1.2, -0.89, 0]).reshape((5, 1))
         tmax = np.array([-0.4, 1.5, 1.7, -0.89, 0]).reshape((5, 1))
         phase_offset = np.array([0, 0, np.pi/2, 0, 0]).reshape((5, 1))
         freq = np.array([.25, .25, .5, 1, 1]).reshape((5, 1))
@@ -623,7 +623,7 @@ class Controller:
         Bounds.assert_thetadot_valid(velocity)
 
         # Don't command sudden changes in position
-        threshold = 0.1 # radian, feel free to change
+        threshold = 0.15 # radian, feel free to change
         diff = np.linalg.norm(position - self.lasttheta_state)
         if diff > threshold:
             errmsg = f"Commanded theta is too far from current theta: lasttheta={self.lasttheta_state}, command={position}, distance={diff}"

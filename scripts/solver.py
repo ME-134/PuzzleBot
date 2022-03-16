@@ -72,11 +72,13 @@ class TaskStack:
     def __repr__(self):
         s = "Task Stack: \n"
         s += "[Top]\n"
-        for i, (task, taskdata) in enumerate(reversed(list(zip(self.tasks, self.taskdata)))):
+        for i, (task, taskdata) in enumerate(reversed(list(zip(self.tasks[:5], self.taskdata[:5])))):
             s += f"{i+1}. " + str(task)
             if taskdata:
                 s += " | Task Data: " + str(taskdata)
             s += "\n"
+        if len(self.tasks) > 5:
+            print(f"... {len(self.tasks) - 5} more items on the stack not shown.")
         s += "[Bottom]"
         return s
 
@@ -305,7 +307,7 @@ class Solver:
             delta = delta / np.linalg.norm(delta)
 
             def find_weight_dest():
-                return loc1 + delta * 20
+                return loc1 + delta * 30
 
             self.puzzle_grid.piece = (pieces[0])
 
@@ -316,7 +318,14 @@ class Solver:
             neighbor_vec = np.array(neighbors_rel[0]) - grid_loc
             puzzle_edge = np.array(self.get_puzzle_region()[0:2]) + 35 + self.puzzle_grid.grid_to_pixel(neighbor_mate) - piece_size * neighbor_vec/2
             piece_edge  = loc2 + piece_size * neighbor_vec/2
+            
+            alignment_offset = np.array([0, 0], dtype=int)
+            if np.all(grid_loc == (0, 1)):
+                alignment_offset = np.array([0, 6], dtype=int)
+
             dx, dy, dtheta = Solver.get_mating_correction(solved_part, new_piece, puzzle_edge, piece_edge)
+
+            print("Piece sizes: ", np.sum(pieces[0].mask), np.sum(pieces[1].mask))
             
             # dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=20, return_sides=True)
             
@@ -327,20 +336,20 @@ class Solver:
                 self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
             else:
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True, 'height': -.001})
-                self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
+                self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point() + np.array([dx, dy]) + alignment_offset, 'turn': dtheta})
             self.tasks.push(SolverTask.LiftPiece)
-            self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
+            self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point()})
             if dx != 0 or dy != 0:
                 weight_origin = self.detector.find_aruco(4)
                 weight_dest = find_weight_dest()
                 weight_distance = np.linalg.norm(weight_dest - weight_origin)
                 rospy.loginfo(f"Weight is {weight_distance} away")
                 # Don't bother moving the weight if it is close enough
-                if weight_distance > 50:
+                if weight_distance > 50 and solved_part.area > 15000*5:
                     # Move the weight to the main puzzle
                     self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'height': .01})
                     self.tasks.push(SolverTask.MoveArm, task_data={'dest': weight_dest, 'height': .10})
-                    self.tasks.push(SolverTask.LiftPiece, task_data={'height': .01})
+                    self.tasks.push(SolverTask.LiftPiece, task_data={'height': .007})
                     self.tasks.push(SolverTask.MoveArm, task_data={'dest': self.detector.find_aruco(4), 'height': .10})
             plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 128
             
@@ -535,9 +544,9 @@ class Solver:
 
                 # NOT pushed in reverse because hackystack gets added to self.tasks in reverse
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': self.piece_list[i].get_pickup_point()})
-                hackystack.push(SolverTask.LiftPiece)
+                hackystack.push(SolverTask.LiftPiece, task_data={'careful': first})
                 hackystack.push(SolverTask.MoveArm, task_data={'dest': loc + offset, 'turn': rots[i]})
-                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'careful': first})
                 if not first:
                     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
                     hackystack.push(SolverTask.MatePiece, task_data={'neighbors':temp_grid.get_neighbors(locations[i]), 'grid_loc': locations[i]})
@@ -658,7 +667,7 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (750, 250, 1680, 850)
+        return (830, 250, 1680, 850)
 
     def get_puzzle_keepouts(self):
         '''
@@ -717,7 +726,7 @@ class Solver:
 
                 # Piece cannot go to the area we designate for the solved puzzle
                 if dummy_piece.overlaps_with_region(self.get_puzzle_region()) and not move_to_puzzle_region:
-                    break # assume puzzle region is in the bottom-right
+                    continue
 
                 if dummy_piece.overlaps_with_region(self.get_region_of_instant_and_inescapable_death()):
                     break # assume region is at the bottom
@@ -775,6 +784,27 @@ class Solver:
         n = self.pieces_cleared
         return self.separated_loc + [self.separated_spacing*(n%5), self.separated_spacing*(n//5)]
 
+    def color_similarity(self, sol_piece, piece):
+        masked_piece = piece.natural_img * piece.thomas_mask.reshape(list(piece.thomas_mask.shape) + [1])
+        masked_sol = sol_piece.natural_img * sol_piece.thomas_mask.reshape(list(sol_piece.thomas_mask.shape) + [1])
+
+        s_mean_color1 = masked_sol[:masked_sol.shape[0]//2, :].reshape(-1, 3)
+        s_mean_color1 = np.nanmean(s_mean_color1[s_mean_color1 > 0], axis = 0)
+        s_mean_color2 = masked_sol[masked_sol.shape[0]//2:, :].reshape(-1, 3)
+        s_mean_color2 = np.nanmean(s_mean_color2[s_mean_color2 > 0], axis = 0)
+
+        p_mean_color1 = masked_piece[:masked_piece.shape[0]//2, :].reshape(-1, 3)
+        p_mean_color1 = np.nanmean(p_mean_color1[p_mean_color1 > 0], axis = 0)
+        p_mean_color2 = masked_piece[masked_piece.shape[0]//2:, :].reshape(-1, 3)
+        p_mean_color2 = np.nanmean(p_mean_color2[p_mean_color2 > 0], axis = 0)
+
+        smape1 = 2*abs(np.nanmean(s_mean_color1 - p_mean_color1)) / (0.001+np.nanmean(s_mean_color1) + np.nanmean(p_mean_color1.mean()))
+        smape2 = 2*abs(np.nanmean(s_mean_color2 - p_mean_color2)) / (0.001+np.nanmean(s_mean_color2) + np.nanmean(p_mean_color2.mean()))
+        score = -0.01 * (smape1 + smape2) 
+        if (np.isnan(score)):
+            score = 0
+        return score
+
     def mask_match(self, pieces):
         ref = cv2.imread('done_exploded_colored4.jpg')
         detector = IlyaDetector()
@@ -814,7 +844,7 @@ class Solver:
                     dot = np.sum(sol_piece.mask * piece.mask)
 
                     if dot > matching[i, j]:
-                        matching[i, j] = dot
+                        matching[i, j] = dot + self.color_similarity(sol_piece, piece)
                         best_rot = (dtheta * np.pi / 2)
                     piece.rotate(np.pi/2)
                 rotations[i, j] += best_rot

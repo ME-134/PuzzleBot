@@ -63,6 +63,8 @@ class PuzzlePiece:
     def copy(self):
         copy = PuzzlePiece(self.mask.copy())
         copy.img = self.img
+        copy.thomas_mask = self.thomas_mask
+        copy.natural_img = self.natural_img
         return copy
 
     def move_to(self, new_x_center, new_y_center):
@@ -93,6 +95,14 @@ class PuzzlePiece:
         rotate_matrix = cv2.getRotationMatrix2D(center=center, angle=theta*180/np.pi, scale=1)
         new_mask = cv2.warpAffine(self.mask, rotate_matrix, self.mask.shape[::-1])
         self.update_mask(new_mask)
+
+        # Do thomas things: 
+        if (self.thomas_mask is not None):
+            center = (self.width // 2, self.height // 2)
+            rotate_matrix = cv2.getRotationMatrix2D(center=center, angle=theta*180/np.pi, scale=1)
+            self.thomas_mask = cv2.warpAffine(self.thomas_mask, rotate_matrix, self.thomas_mask.shape[::-1])
+            rotate_matrix = cv2.getRotationMatrix2D(center=center, angle=theta*180/np.pi, scale=1)
+            self.natural_img = cv2.warpAffine(self.natural_img, rotate_matrix, self.natural_img.shape[1::-1])
 
     def bounds_slice(self, padding=0):
         return (slice(max(0, self.ymin - padding), self.ymin+self.height+padding, 1), 

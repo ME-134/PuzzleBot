@@ -285,8 +285,8 @@ class Controller:
 
     def _create_jiggle_spline(self, center, height = 0.011):
         # only works in task space
-        pos_offset = .0028
-        rot_offset = .09
+        pos_offset = .0033
+        rot_offset = .1
         duration = 5
         pgoal1 = center + np.array([-pos_offset, -pos_offset, height, -rot_offset, 0]).reshape((5, 1))
         pgoal2 = center + np.array([pos_offset, pos_offset, height, rot_offset, 0]).reshape((5, 1))

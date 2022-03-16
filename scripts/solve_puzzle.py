@@ -283,25 +283,24 @@ class Controller:
         splines.append(GotoSpline(self.lasttheta, goal_theta, v0=self.lastthetadot))
         self.change_segments(splines)
 
-    def _create_jiggle_spline(self, center):
+    def _create_jiggle_spline(self, center, height = 0.011):
         # only works in task space
-        pos_offset = .004
-        rot_offset = .1
+        pos_offset = .0028
+        rot_offset = .09
         duration = 5
-        jiggle_height = 0.011
-        pgoal1 = center + np.array([-pos_offset, -pos_offset, jiggle_height, -rot_offset, 0]).reshape((5, 1))
-        pgoal2 = center + np.array([pos_offset, pos_offset, jiggle_height, rot_offset, 0]).reshape((5, 1))
+        pgoal1 = center + np.array([-pos_offset, -pos_offset, height, -rot_offset, 0]).reshape((5, 1))
+        pgoal2 = center + np.array([pos_offset, pos_offset, height, rot_offset, 0]).reshape((5, 1))
         phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
         freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
         return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
-    def _piece_down_up(self, new_pump_value, jiggle=False, space='Joint', mindur=1):
+    def _piece_down_up(self, new_pump_value, jiggle=False, height=-0.005, space='Joint', mindur=1):
         curr_pos = np.float32([0, 0, 0, -self.lasttheta[4, 0]+self.lasttheta[0,0], 0]).reshape((5, 1))
         curr_pos[:3] = self.get_current_position()
         med_pos = curr_pos.copy()
-        med_pos[2, 0] = 0.01
+        med_pos[2, 0] = 0.018 + height
         pickup_pos = curr_pos.copy()
-        pickup_pos[2, 0] = -0.005
+        pickup_pos[2, 0] = height
         if space == 'Joint':
             up = self.lasttheta
             med = self.ikin(med_pos, up)
@@ -318,7 +317,7 @@ class Controller:
 
             # Jiggle needs to be done in 'Task' space
             seq.change_space(pickup_pos, 'Task')
-            jiggle_spline = self._create_jiggle_spline(pickup_pos)
+            jiggle_spline = self._create_jiggle_spline(pickup_pos, height=height)
             seq.append_goto(jiggle_spline.evaluate(0)[0])
             seq.append(jiggle_spline)
             seq.append_goto(pickup_pos)
@@ -336,13 +335,13 @@ class Controller:
 
         self.change_segments(seq.as_list())
 
-    def place_piece(self, jiggle=False, space='Joint', careful=True):
+    def place_piece(self, jiggle=False, space='Joint', careful=True, height=.005):
         mindur = 1 if careful else 0.5
-        self._piece_down_up(False, jiggle=jiggle, space=space, mindur=mindur)
+        self._piece_down_up(False, jiggle=jiggle, space=space, mindur=mindur, height=height)
 
-    def lift_piece(self, space='Joint', careful=True):
+    def lift_piece(self, space='Joint', careful=True, height=.005):
         mindur = 1 if careful else 0
-        self._piece_down_up(True, jiggle=False, space=space, mindur=mindur)
+        self._piece_down_up(True, jiggle=False, space=space, mindur=mindur, height=height)
 
     # DEPRECATED
     def move_piece(self, piece_origin, piece_destination, turn=0, jiggle=False, space='Joint', pickup_height=-.005, hover_amount=.06, place_height=-.014):

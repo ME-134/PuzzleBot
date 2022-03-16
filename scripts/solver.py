@@ -17,6 +17,19 @@ from piece_outline_detector import Detector as IlyaDetector
 from puzzle_grid import PuzzleGrid
 import vision
 
+COLORLIST = ((000, 000, 255),           # Red
+             (000, 255, 000),           # Green
+             (255, 000, 000),           # Blue
+             (255, 255, 000),           # Yellow
+             (000, 255, 255),           # Cyan
+             (255, 000, 255),           # Magenta
+             (255, 128, 000),           # Orange
+             (000, 255, 128),
+             (128, 000, 255),
+             (255, 000, 128),
+             (128, 255, 000),
+             (000, 128, 255))
+
 class SolverTask(enum.Enum):
     # HIGH-LEVEL TASKS
     SeparatePieces = 0
@@ -260,38 +273,60 @@ class Solver:
             return
 
         elif curr_task == SolverTask.LiftPiece:
-            controller.lift_piece(careful=task_data.get('careful', True))
+            controller.lift_piece(careful=task_data.get('careful', True),
+                height=task_data.get('height', -.005))
             return
 
         elif curr_task == SolverTask.PlacePiece:
-            controller.place_piece(jiggle=task_data['jiggle'], careful=task_data.get('careful', True))
+            controller.place_piece(jiggle=task_data['jiggle'], 
+                careful=task_data.get('careful', True),
+                height=task_data.get('height', -.005))
             return
 
         elif curr_task == SolverTask.MatePiece:
             # Matches the two biggest pieces
+            def drawSide(image, side, color):
+                for x,y in np.array(side).reshape(-1,2):
+                    image[y,x] = color
+
+            def drawSides(image, sides, color=None):
+                for i in range(len(sides)):
+                    c = color if color else COLORLIST[i % len(COLORLIST)]
+                    drawSide(image, sides[i], c)
+
             # Makes first piece the main puzzle
             self.tasks.pop()
             pieces = sorted(self.detector.pieces, key=lambda x: x.xmin + x.ymin)
+            solved_part = pieces[0]
+            new_piece = pieces[1]
             # Uses assumption that puzzle is starting from top left to figure out which piece is which
             loc1, loc2 = np.array(pieces[0].get_location()), np.array(pieces[1].get_location())
             delta = loc1 - loc2
             delta = delta / np.linalg.norm(delta)
-            # if np.arccos(np.dot(delta, [-1/np.sqrt(2), -1/np.sqrt(2)])) > 1.4:
-                # pieces[0], pieces[1] = pieces[1], pieces[0]
 
             def find_weight_dest():
                 return loc1 + delta * 20
 
             self.puzzle_grid.piece = (pieces[0])
+
+            neighbors_rel = task_data.get('neighbors')
+            grid_loc  = task_data.get('grid_loc')
+            piece_size = np.array([135, 115])
+            neighbor_mate = np.array(neighbors_rel[0])
+            neighbor_vec = np.array(neighbors_rel[0]) - grid_loc
+            puzzle_edge = np.array(self.get_puzzle_region()[0:2]) + 35 + self.puzzle_grid.grid_to_pixel(neighbor_mate) - piece_size * neighbor_vec/2
+            piece_edge  = loc2 + piece_size * neighbor_vec/2
+            dx, dy, dtheta = Solver.get_mating_correction(solved_part, new_piece, puzzle_edge, piece_edge)
             
-            dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=8, return_sides=True)
+            # dx, dy, dtheta, side0, side1 = pieces[1].find_contour_match(pieces[0], match_threshold=20, return_sides=True)
+            
             if dx == 0 and dy == 0:
                 # FIXME
                 piece_destination = self.find_available_piece_spot(pieces[1], 0)
                 self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
                 self.tasks.push(SolverTask.MoveArm, task_data={'dest': piece_destination, 'turn': 0})
             else:
-                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True})
+                self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True, 'height': -.001})
                 self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location() + np.array([dx, dy]), 'turn': dtheta})
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_location()})
@@ -303,14 +338,15 @@ class Solver:
                 # Don't bother moving the weight if it is close enough
                 if weight_distance > 50:
                     # Move the weight to the main puzzle
-                    self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False})
+                    self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': False, 'height': .01})
                     self.tasks.push(SolverTask.MoveArm, task_data={'dest': weight_dest, 'height': .10})
-                    self.tasks.push(SolverTask.LiftPiece)
+                    self.tasks.push(SolverTask.LiftPiece, task_data={'height': .01})
                     self.tasks.push(SolverTask.MoveArm, task_data={'dest': self.detector.find_aruco(4), 'height': .10})
-            plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 255
+            plan_img = np.zeros((1080, 1720, 3), dtype=np.uint8) + 128
             
-            plan_img[side0] = [255, 255, 0]
-            plan_img[side1] = [0, 255, 0]
+            # drawSide(plan_img, side0 + [pieces[0].xmin, pieces[0].ymin], [255, 0, 0])
+            # drawSide(plan_img, side1 + [pieces[1].xmin, pieces[1].ymin], [255, 0, 0])
+            #drawSides
             dummy_piece = pieces[1].copy()
             dummy_piece.rotate(dtheta)
             dummy_piece.move_to(np.array(dummy_piece.get_location()[0]) + dx, np.array(dummy_piece.get_location()[1]) + dy)
@@ -484,7 +520,8 @@ class Solver:
             def processpiece(i, first=False):
                 offset = place_offset(locations[i]) if not first else 0
                 # offset = 0
-                loc = np.array([720, 380]) + temp_grid.grid_to_pixel(locations[i])
+                padding = 35
+                loc = np.array(self.get_puzzle_region()[0:2]) + padding + temp_grid.grid_to_pixel(locations[i])
                 piece = self.piece_list[i]
                 loc = np.array(piece.correct_point_by_pickup_offset(loc))
                 # Color selected piece
@@ -503,7 +540,7 @@ class Solver:
                 hackystack.push(SolverTask.PlacePiece, task_data={'jiggle': False})
                 if not first:
                     hackystack.push(SolverTask.GetViewPuzzle, task_data={'merge': False})
-                    hackystack.push(SolverTask.MatePiece)
+                    hackystack.push(SolverTask.MatePiece, task_data={'neighbors':temp_grid.get_neighbors(locations[i]), 'grid_loc': locations[i]})
 
                 # self.action_queue.append(call_me(self.piece_list[i].get_location(), loc, turn = rots[i]*np.pi/2, jiggle=False))
                 temp_grid.occupied[tuple(locations[i])] = 1
@@ -621,7 +658,7 @@ class Solver:
         representing the region where we want the solved puzzle to end up.
         '''
         # TODO
-        return (650, 350, 1680, 850)
+        return (750, 250, 1680, 850)
 
     def get_puzzle_keepouts(self):
         '''
@@ -702,7 +739,7 @@ class Solver:
                     continue
 
                 # Piece can only go to where there are no other pieces already
-                elif np.all(free_space[dummy_piece.bounds_slice(padding=20)]):
+                elif np.all(free_space[dummy_piece.bounds_slice(padding=15)]):
                     dummy_piece = dummy_piece_copy.copy()
                     dummy_piece.move_to(x, y)
 
@@ -823,3 +860,73 @@ class Solver:
 
         return grid_locs, rots
 
+    @staticmethod
+    def get_mating_correction(fixed_piece, new_piece, solved_edge_loc, new_edge_loc):
+    
+        def get_edge(piece, edge_loc):
+            sides = piece.get_sides()
+            best_score = np.inf
+            best_side = None
+            for side in sides:
+                score = np.linalg.norm(np.mean(side, axis=0) - edge_loc)
+                if score < best_score:
+                    best_side = side
+                    best_score = score
+            return best_side
+
+        solved_edge = get_edge(fixed_piece, solved_edge_loc)
+        new_edge = get_edge(new_piece, new_edge_loc)
+
+        new_edge_to_solved_edge = np.mean(solved_edge, axis=0) - np.mean(new_edge, axis=0)
+        
+        new_edge_moved = (new_edge + new_edge_to_solved_edge).astype(int)
+
+        rotation_center = np.array(new_piece.get_pickup_point()).astype(np.float32)
+
+        fixed_edge_arr = np.zeros((2000, 2000)).astype(np.uint8)
+        new_edge_arr = np.zeros((2000, 2000)).astype(np.uint8)
+        x, y = tuple(np.mean(new_edge, axis=0).astype(int))
+
+        for p in solved_edge:
+            fixed_edge_arr[p[1], p[0]] = 1
+        for p in new_edge_moved:
+            new_edge_arr[p[1], p[0]] = 1
+
+        fixed_edge_arr = cv2.dilate(fixed_edge_arr, None, iterations=5).astype(np.float32)
+        new_edge_arr = cv2.dilate(new_edge_arr, None, iterations=5).astype(np.float32)
+
+        fixed_edge_arr /= np.linalg.norm(fixed_edge_arr)
+
+        def fun(arr):
+            dx = int(arr[0])
+            dy = int(arr[1])
+            dtheta = arr[2]
+            dtheta_deg = dtheta*180/np.pi
+            corrected = new_edge_arr.copy()
+            corrected[y-100+dy:y+100+dy, x-100-dx:x+100-dx] = corrected[y-100:y+100, x-100:x+100]
+            dtheta = np.radians(dtheta_deg)
+
+            center = rotation_center + np.float32([dx, dy])
+
+            rotate_matrix = cv2.getRotationMatrix2D(center=tuple(center), angle=dtheta_deg, scale=1)
+            corrected = cv2.warpAffine(corrected, rotate_matrix, corrected.shape[::-1])
+
+            corrected /= np.linalg.norm(corrected)
+            score = np.sum(corrected * fixed_edge_arr)
+            return -score
+
+
+        x0 = np.array([-1, -1, -0.01])
+        from scipy.optimize import minimize
+        res = minimize(fun, x0, method='nelder-mead',
+                    options={'xatol': 1e-8, 'disp': True, 'maxiter': 20},
+                    bounds = [(-10, 10), (-10, 10), (-3, 3)])
+
+        res_dx = int(res.x[0])
+        res_dy = int(res.x[1])
+        dtheta = res.x[2]
+        
+        dx = new_edge_to_solved_edge[0] + res_dx
+        dy = new_edge_to_solved_edge[1] - res_dy
+        
+        return dx, dy, dtheta

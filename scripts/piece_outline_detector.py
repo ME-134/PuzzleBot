@@ -163,7 +163,7 @@ class PuzzlePiece:
 
     def get_largest_contour(self, image = None, erosion = 0, dilation = 0, filter_iters = 0) :
         if image is None:
-            image = self.thomas_mask
+            image = self.mask.astype(np.uint8)
         # Compute a contour and then use the largest countour to build a bounding box
         filtered = image
         for i in range(filter_iters):
@@ -268,8 +268,8 @@ class PuzzlePiece:
         '''Finds the corners of the underlying polygon of the shape'''
         # Create a blank image, to allow the erosion and dilation without
         # interferring with other image elements.
-        binary = np.zeros(np.array(self.thomas_mask.shape)*3, dtype=np.uint8)
-        binary[self.thomas_mask.shape[0]:2*self.thomas_mask.shape[0], self.thomas_mask.shape[1]: 2*self.thomas_mask.shape[1]] = self.thomas_mask
+        binary = np.zeros(np.array(self.mask.shape)*3, dtype=np.uint8)
+        binary[self.mask.shape[0]:2*self.mask.shape[0], self.mask.shape[1]: 2*self.mask.shape[1]] = self.mask
 
         # kernel = np.array([[0, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [0, 1, 1, 1, 0]], dtype=np.uint8)
         kernel = None
@@ -283,7 +283,7 @@ class PuzzlePiece:
         binary = cv2.erode(binary,  kernel, iterations=N)
         binary = cv2.dilate(binary, kernel, iterations=N)
 
-        binary = binary[self.thomas_mask.shape[0]:2*self.thomas_mask.shape[0], self.thomas_mask.shape[1]: 2*self.thomas_mask.shape[1]]
+        binary = binary[self.mask.shape[0]:2*self.mask.shape[0], self.mask.shape[1]: 2*self.mask.shape[1]]
         
         # Re-find the countour of the base shape.  Again, do not
         # approximate, so we get the full list of pixels on the boundary.

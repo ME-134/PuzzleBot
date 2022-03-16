@@ -110,7 +110,7 @@ class Solver:
         # Series of actions to perform
         self.action_queue = []
 
-        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 35)
+        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 50)
         self.num_pieces = 20
         self.pieces_cleared = 0
         self.separated_loc = np.array([220, 100])
@@ -259,7 +259,7 @@ class Solver:
 
             else:
                 rospy.loginfo("[Solver] Arm is in the puzzle region, resetting robot.")
-                controller.reset()
+                controller.reset(location='puzzle_region')
                 return
 
         elif curr_task == SolverTask.InitAruco:
@@ -327,11 +327,17 @@ class Solver:
                 alignment_offset = np.array([0, 6], dtype=int)
 
             # Cropping the left side of the puzzle if puzzle is too big
-            crop_multiplier = np.array([0, 0])
-            piece_width = 135
-            piece_height = 115
-            solved_part.mask[solved_part.ymin:solved_part.ymin + crop_multiplier[1]*piece_height, \
-                            solved_part.xmin:solved_part.xmax + crop_multiplier[0]*piece_width] = 0
+            # done_cols = 0
+            # for col in range(5):
+            #     if np.all(self.puzzle_grid.occupied[col, :] == 0):
+            #         done_cols += 1
+            #     else:
+            #         break
+            # piece_width = 135
+            # piece_height = 115
+            # solved_part.mask[solved_part.ymin:solved_part.ymin + 4*piece_height, \
+            #                 solved_part.xmin:solved_part.xmax + done_cols*piece_width] = 0
+            # solved_part.update_mask()
 
             dx, dy, dtheta = Solver.get_mating_correction(solved_part, new_piece, puzzle_edge, piece_edge)
 
@@ -341,7 +347,7 @@ class Solver:
             
             self.puzzle_grid.occupied[grid_loc[0], grid_loc[1]] = 1
             # for normal puzzle: height = -.001
-            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True, 'height': 0.001, 'tightening': -np.array(grid_loc) * 0.002})
+            self.tasks.push(SolverTask.PlacePiece, task_data={'jiggle': True, 'height': 0.000, 'tightening': -np.array(grid_loc) * 0.002})
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point() + np.array([dx, dy]) + alignment_offset, 'turn': dtheta})
             self.tasks.push(SolverTask.LiftPiece)
             self.tasks.push(SolverTask.MoveArm, task_data={'dest': pieces[1].get_pickup_point()})
@@ -442,7 +448,7 @@ class Solver:
 
             locations, rots = self.mask_match(self.piece_list)
             hackystack = TaskStack() # temporary hacky solution
-            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 35)
+            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 50)
 
             plan_img = self.detector.latestImage.copy()
 
@@ -703,7 +709,7 @@ class Solver:
 
     def mask_match(self, pieces):
         # auto-detect
-        ref = cv2.imread('gunter_exploded.jpg')
+        ref = cv2.imread('done_exploded_colored4.jpg')
         detector = IlyaDetector()
         detector.process(ref)
         sol_pieces = detector.pieces.copy()
@@ -720,28 +726,47 @@ class Solver:
             piece.mask = piece.mask[:400, :400]
             piece.rotate(rot)
             piece.mask = piece.mask / np.linalg.norm(piece.mask)
+            
             return piece, rot
+
+        def color_profile(piece):
+            color_mask = piece.natural_img * piece.thomas_mask.reshape((piece.natural_img.shape[0], piece.natural_img.shape[1], 1))
+            color_mask = color_mask.reshape((-1, 3)).astype(np.float32)
+            nonzero = np.any(color_mask, axis=1)
+            color_mask[nonzero] -= np.mean(color_mask)
+            color_mask[nonzero] /= np.std(color_mask)
+            colors = np.mean(color_mask[nonzero], axis=0)
+            print(colors)
+            return colors
+        piece_colors = np.zeros((len(pieces), 3))
+        sol_piece_colors = np.zeros((len(pieces), 3))
 
         pieces_normalized = list()
         for i, piece in enumerate(pieces):
             normalized_piece, rot = normalized(piece)
             rotations[i, :] += rot
             pieces_normalized.append(normalized_piece)
+            piece_colors[i] = color_profile(piece)
 
         for j, sol_piece in enumerate(sol_pieces):
             sol_piece, rot = normalized(sol_piece)
             rotations[:, j] += -rot
+            sol_piece_colors[j] = color_profile(sol_piece)
             print(f"Progress: {j}/{len(sol_pieces)}")
             for i, piece in enumerate(pieces_normalized):
                 piece = piece.copy()
                 matching[i, j] = 0
                 best_rot = 0
+                color_score = np.sum(piece_colors[i] * sol_piece_colors[j]) * 0.2
                 for dtheta in range(4):
                     piece.mask = piece.mask / np.linalg.norm(piece.mask)
                     dot = np.sum(sol_piece.mask * piece.mask)
 
-                    if dot > matching[i, j]:
-                        matching[i, j] = dot + self.color_similarity(sol_piece, piece)
+                    alpha = 0.9
+                    total_score = alpha * dot + (1 - alpha) * color_score
+
+                    if total_score > matching[i, j]:
+                        matching[i, j] = total_score# + self.color_similarity(sol_piece, piece)
                         best_rot = (dtheta * np.pi / 2)
                     piece.rotate(np.pi/2)
                 rotations[i, j] += best_rot
@@ -766,7 +791,6 @@ class Solver:
             fake_grid += fake_piece.mask
         
         print(f"[Solver]: Average similarity: {matching[row_ind, col_ind].sum()/len(pieces)}") 
-        cv2.imwrite('solverplan.png', fake_grid)
         #cv2.waitKey(0)
         #cv2.destroyAllWindows()
 

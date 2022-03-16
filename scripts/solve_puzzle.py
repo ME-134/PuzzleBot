@@ -48,7 +48,7 @@ class GotoSpline(SafeCubicSpline):
             min_time = max(min_time, kwargs['minduration'])
             del kwargs['minduration']
         speed = 0.5 # rad per sec
-        max_diff = np.max(np.abs(p0 - pf))
+        max_diff = np.max(np.abs(p0 - pf).flatten()[:4])
         time = max(max_diff / speed, min_time)
         assert time >= min_time
         SafeCubicSpline.__init__(self, p0, v0, pf, vf, time, **kwargs)
@@ -222,13 +222,15 @@ class Controller:
         self.index = 0
         self.state = State.splining
 
-    def reset(self):
+    def reset(self, location='default'):
         # Assumes that the initial theta is valid.
         # Will not attempt to reset a theta which is out of bounds.
 
         rospy.loginfo("[Controller] Resetting robot")
 
         goal_theta = self.reset_theta
+        if location == 'puzzle_region':
+            goal_theta = np.array([0.32224512100219727, 1.3041225671768188, 2.0830869674682617, -0.7699292898178101, 0.0]).reshape((5, 1))
 
         Bounds.assert_theta_valid(goal_theta)
         Bounds.assert_theta_valid(self.lasttheta)
@@ -285,12 +287,12 @@ class Controller:
 
     def _create_jiggle_spline(self, center, height = 0.011):
         # only works in task space
-        # pos_offset = .0033
-        # rot_offset = .1
-        # duration = 5
-        pos_offset = .004
-        rot_offset = .11
+        pos_offset = .0033
+        rot_offset = .1
         duration = 4
+        # pos_offset = .004
+        # rot_offset = .11
+        # duration = 4
         pgoal1 = center + np.array([-pos_offset, -pos_offset, height, -rot_offset, 0]).reshape((5, 1))
         pgoal2 = center + np.array([pos_offset, pos_offset, height, rot_offset, 0]).reshape((5, 1))
         phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))

@@ -55,11 +55,11 @@
   </node>
 
 
-  <!-- Run the rviz visualization -->
+  <!-- Run the rviz visualization 
   <node pkg ="rviz"
 	type="rviz"
 	name="rviz" args="-d $(arg cfg)"
 	output="screen"
-	required="false"/>
+	required="false"/>-->
 
 </launch>

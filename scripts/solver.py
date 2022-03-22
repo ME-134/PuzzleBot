@@ -114,7 +114,7 @@ class Solver:
         # Series of actions to perform
         self.action_queue = []
 
-        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 100)
+        self.puzzle_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + [100, 60])
         self.num_pieces = 20
         self.pieces_cleared = 0
         self.separated_loc = np.array([220, 100])
@@ -471,7 +471,7 @@ class Solver:
 
             locations, rots = self.mask_match(self.piece_list)
             hackystack = TaskStack() # temporary hacky solution
-            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + 100)
+            temp_grid = PuzzleGrid(offset = np.array(self.get_puzzle_region()[0:2]) + [100, 60])
 
             plan_img = self.detector.latestImage.copy()
 

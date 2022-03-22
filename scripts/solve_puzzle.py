@@ -303,7 +303,7 @@ class Controller:
 
     def _create_jiggle_spline(self, center, height = 0.011):
         # only works in task space
-        pos_offset = .0033
+        pos_offset = .0027
         rot_offset = .1
         duration = 4
         # pos_offset = .004
@@ -311,7 +311,8 @@ class Controller:
         # duration = 4
         pgoal1 = center + np.array([-pos_offset, -pos_offset, height, -rot_offset, 0]).reshape((5, 1))
         pgoal2 = center + np.array([pos_offset, pos_offset, height, rot_offset, 0]).reshape((5, 1))
-        phase_offset = np.array([0, np.pi/2, 0, 0, 0]).reshape((5, 1))
+        dir = -1 if np.random.rand() < .5 else 1
+        phase_offset = np.array([0, np.pi/2 * dir, 0, 0, 0]).reshape((5, 1))
         freq = np.array([1, 1, .5, .8, .5]).reshape((5, 1))
         return SinTraj(pgoal1, pgoal2, duration, freq, offset=phase_offset, space='Task')
 
